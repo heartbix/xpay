@@ -1,15 +1,21 @@
 {
   "name": "@heartbix/xpay-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "mcpName": "io.github.heartbix/xpay-mcp",
   "description": "Official XPay MCP server: quote and pay x402 URLs from Cursor, Claude, and other MCP clients.",
   "license": "MIT",
   "type": "module",
   "bin": {
     "xpay-mcp": "./index.mjs"
   },
-  "files": ["index.mjs", "README.md"],
+  "files": ["index.mjs", "README.md", "server.json"],
   "engines": { "node": ">=18" },
   "keywords": ["mcp", "x402", "xpay", "cursor", "claude"],
   "homepage": "https://xpay.heartbix.com/llms.txt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heartbix/xpay.git",
+    "directory": "sdks/mcp"
+  },
   "publishConfig": { "access": "public" }
 }
