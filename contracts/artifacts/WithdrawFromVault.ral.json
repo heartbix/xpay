@@ -1,0 +1,28 @@
+{
+  "version": "v4.5.5",
+  "name": "WithdrawFromVault",
+  "bytecodeTemplate": "01010300000005{1}0d0c{0}010b",
+  "fieldsSig": {
+    "names": [
+      "vault",
+      "amount"
+    ],
+    "types": [
+      "PaymentVault",
+      "U256"
+    ],
+    "isMutable": [
+      false,
+      false
+    ]
+  },
+  "functions": [
+    {
+      "name": "main",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": []
+    }
+  ]
+}

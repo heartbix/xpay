@@ -1,0 +1,75 @@
+{
+  "fullNodeVersion": "v4.5.5",
+  "compilerOptionsUsed": {
+    "ignoreUnusedConstantsWarnings": false,
+    "ignoreUnusedVariablesWarnings": false,
+    "ignoreUnusedFieldsWarnings": false,
+    "ignoreUnusedPrivateFunctionsWarnings": false,
+    "ignoreUpdateFieldsCheckWarnings": false,
+    "ignoreCheckExternalCallerWarnings": false,
+    "ignoreUnusedFunctionReturnWarnings": false,
+    "skipAbstractContractCheck": false
+  },
+  "infos": {
+    "ClaimMockUSDT": {
+      "sourceFile": "claim_mock_usdt.ral",
+      "sourceCodeHash": "4d467a75c264a3bc1096b2a19632648b19aa7a35d82f339fa4e8357e91a59143",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": ""
+    },
+    "DepositToVault": {
+      "sourceFile": "vault_actions.ral",
+      "sourceCodeHash": "20193ea46a626790e2533ac408eebc99c18560ac1257317b91311d71fc874028",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": ""
+    },
+    "GasSponsor": {
+      "sourceFile": "gas_sponsor.ral",
+      "sourceCodeHash": "24f6ffb1488846e662b61c85851345ff7e8ff526b3db48cfc7225b628c6e1974",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": "3e531b4e68fbfd6a368c0936031afa3e53c992cf2189829d964c87d2d3a1311d"
+    },
+    "IFungibleToken": {
+      "sourceFile": "..\\..\\node_modules\\@alephium\\web3\\std\\fungible_token_interface.ral",
+      "sourceCodeHash": "62910bf11e1eeb6cb2fd468626ff606a9b06306b2b81590c3b10f6deb5966bde",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": ""
+    },
+    "MockUSDT": {
+      "sourceFile": "mock_usdt.ral",
+      "sourceCodeHash": "5385d092613b4fcc12a80edef4c56393823cb3f66c2f8054de8fa9043889dd00",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": "7005f8a8056cc132553fe696da70bfe6e0345ae69038c80cd0024e3adddc9a5c"
+    },
+    "PaymentVault": {
+      "sourceFile": "payment_vault.ral",
+      "sourceCodeHash": "7ebf196e08ab6b6b4f6958b5481b810a6c89ea136f7d67f54e6821fef11f585b",
+      "bytecodeDebugPatch": "=34-6+6d=2-2+55=2-1=1+b43d1=2+e=1-1=559-1+b=100+7a7e0214696e73657274206174206d617020706174683a2000=32-2+51=95-1+d=40+7a7e0214696e73657274206174206d617020706174683a2000=151-1+c=40+7a7e0214696e73657274206174206d617020706174683a2000=35-1+c=123-1+d=40+7a7e0214696e73657274206174206d617020706174683a2000=151-1+c=40+7a7e0214696e73657274206174206d617020706174683a2000=844",
+      "codeHashDebug": "e70068b614bd2a8c4546e16e51a425a40bebf39779c57d75c2cd4d43525d22e8"
+    },
+    "RegisterVaultKey": {
+      "sourceFile": "vault_actions.ral",
+      "sourceCodeHash": "20193ea46a626790e2533ac408eebc99c18560ac1257317b91311d71fc874028",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": ""
+    },
+    "SettlePayment": {
+      "sourceFile": "vault_actions.ral",
+      "sourceCodeHash": "20193ea46a626790e2533ac408eebc99c18560ac1257317b91311d71fc874028",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": ""
+    },
+    "SponsoredPing": {
+      "sourceFile": "sponsored_ping.ral",
+      "sourceCodeHash": "83f9c7d623aac6c3d0b6e5af02903c69370d2ca842fa3ebef044bc3916ef2fa2",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": ""
+    },
+    "WithdrawFromVault": {
+      "sourceFile": "vault_actions.ral",
+      "sourceCodeHash": "20193ea46a626790e2533ac408eebc99c18560ac1257317b91311d71fc874028",
+      "bytecodeDebugPatch": "",
+      "codeHashDebug": ""
+    }
+  }
+}

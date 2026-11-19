@@ -1,0 +1,3 @@
+TxScript ClaimMockUSDT(token: MockUSDT) {
+    token.claim()
+}

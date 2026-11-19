@@ -1,0 +1,3 @@
+TxScript SponsoredPing(sponsor: GasSponsor, usdtTokenId: ByteVec, usdtFee: U256) {
+    sponsor.sponsoredPing{callerAddress!() -> usdtTokenId: usdtFee}()
+}

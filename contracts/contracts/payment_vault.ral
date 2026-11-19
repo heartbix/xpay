@@ -1,0 +1,164 @@
+// USD ledger for x402: deposit MockUSDT, settle with off-chain signed auth.
+Contract PaymentVault(
+    admin: Address,
+    hub: Address,
+    usdtTokenId: ByteVec,
+    mut paused: Bool
+) {
+    mapping[Address, U256] balances
+    mapping[Address, U256] nonces
+    mapping[Address, ByteVec] publicKeys
+
+    event Deposited(user: Address, amount: U256)
+    event Credited(user: Address, amount: U256)
+    event Withdrawn(user: Address, amount: U256)
+    event Settled(from: Address, to: Address, amount: U256, nonce: U256)
+    event PublicKeyRegistered(user: Address)
+
+    enum ErrorCodes {
+        Unauthorized = 0
+        Paused = 1
+        InsufficientBalance = 2
+        InvalidNonce = 3
+        Expired = 4
+        PublicKeyMissing = 5
+        PublicKeyExists = 6
+        ZeroAmount = 7
+    }
+
+    pub fn getUsdtTokenId() -> ByteVec {
+        return usdtTokenId
+    }
+
+    pub fn isPaused() -> Bool {
+        return paused
+    }
+
+    pub fn getBalance(user: Address) -> U256 {
+        if (!balances.contains!(user)) {
+            return 0
+        }
+        return balances[user]
+    }
+
+    pub fn getNonce(user: Address) -> U256 {
+        if (!nonces.contains!(user)) {
+            return 0
+        }
+        return nonces[user]
+    }
+
+    pub fn hasPublicKey(user: Address) -> Bool {
+        return publicKeys.contains!(user)
+    }
+
+    pub fn getPublicKey(user: Address) -> ByteVec {
+        assert!(publicKeys.contains!(user), ErrorCodes.PublicKeyMissing)
+        return publicKeys[user]
+    }
+
+    pub fn paymentHash(
+        from: Address,
+        to: Address,
+        amount: U256,
+        nonce: U256,
+        deadline: U256
+    ) -> ByteVec {
+        return blake2b!(encodeToByteVec!(selfContractId!(), from, to, amount, nonce, deadline))
+    }
+
+    @using(updateFields = true)
+    pub fn setPaused(value: Bool) -> () {
+        checkCaller!(callerAddress!() == admin, ErrorCodes.Unauthorized)
+        paused = value
+    }
+
+    // Register secp256k1 compressed public key (33 bytes) for signed settles.
+    @using(preapprovedAssets = true, updateFields = true, checkExternalCaller = false)
+    pub fn registerPublicKey(publicKey: ByteVec) -> () {
+        let user = callerAddress!()
+        assert!(!publicKeys.contains!(user), ErrorCodes.PublicKeyExists)
+        publicKeys.insert!(user, user, publicKey)
+        emit PublicKeyRegistered(user)
+    }
+
+    @using(preapprovedAssets = true, assetsInContract = true, updateFields = true, checkExternalCaller = false)
+    pub fn deposit(amount: U256) -> () {
+        assert!(!paused, ErrorCodes.Paused)
+        assert!(amount > 0, ErrorCodes.ZeroAmount)
+        let user = callerAddress!()
+        transferTokenToSelf!(user, usdtTokenId, amount)
+        if (!balances.contains!(user)) {
+            balances.insert!(user, user, amount)
+        } else {
+            balances[user] = balances[user] + amount
+        }
+        if (!nonces.contains!(user)) {
+            nonces.insert!(user, user, 0)
+        }
+        emit Deposited(user, amount)
+    }
+
+    // Hub credits after observing source-chain USDT (Phase 3). Caller supplies USDT + map deposits.
+    @using(preapprovedAssets = true, assetsInContract = true, updateFields = true, checkExternalCaller = false)
+    pub fn creditFromHub(user: Address, amount: U256) -> () {
+        assert!(!paused, ErrorCodes.Paused)
+        assert!(amount > 0, ErrorCodes.ZeroAmount)
+        checkCaller!(callerAddress!() == hub || callerAddress!() == admin, ErrorCodes.Unauthorized)
+        let payer = callerAddress!()
+        transferTokenToSelf!(payer, usdtTokenId, amount)
+        if (!balances.contains!(user)) {
+            balances.insert!(payer, user, amount)
+        } else {
+            balances[user] = balances[user] + amount
+        }
+        if (!nonces.contains!(user)) {
+            nonces.insert!(payer, user, 0)
+        }
+        emit Credited(user, amount)
+    }
+
+    @using(assetsInContract = true, updateFields = true, checkExternalCaller = false)
+    pub fn withdraw(amount: U256) -> () {
+        assert!(!paused, ErrorCodes.Paused)
+        assert!(amount > 0, ErrorCodes.ZeroAmount)
+        let user = callerAddress!()
+        assert!(balances.contains!(user), ErrorCodes.InsufficientBalance)
+        assert!(balances[user] >= amount, ErrorCodes.InsufficientBalance)
+        balances[user] = balances[user] - amount
+        transferTokenFromSelf!(user, usdtTokenId, amount)
+        emit Withdrawn(user, amount)
+    }
+
+    // Anyone may submit; authorization is the user's registered-key signature.
+    // MUSDT stays in the vault: debit payer, credit payee (XPay spendable balance).
+    @using(preapprovedAssets = true, updateFields = true, checkExternalCaller = false)
+    pub fn settle(
+        from: Address,
+        to: Address,
+        amount: U256,
+        nonce: U256,
+        deadline: U256,
+        signature: ByteVec
+    ) -> () {
+        assert!(!paused, ErrorCodes.Paused)
+        assert!(amount > 0, ErrorCodes.ZeroAmount)
+        assert!(blockTimeStamp!() <= deadline, ErrorCodes.Expired)
+        assert!(publicKeys.contains!(from), ErrorCodes.PublicKeyMissing)
+        assert!(nonces.contains!(from), ErrorCodes.InvalidNonce)
+        assert!(nonces[from] == nonce, ErrorCodes.InvalidNonce)
+        assert!(balances.contains!(from) && balances[from] >= amount, ErrorCodes.InsufficientBalance)
+
+        let hash = paymentHash(from, to, amount, nonce, deadline)
+        verifySecP256K1!(hash, publicKeys[from], signature)
+
+        balances[from] = balances[from] - amount
+        nonces[from] = nonce + 1
+        if (!balances.contains!(to)) {
+            balances.insert!(callerAddress!(), to, amount)
+        } else {
+            balances[to] = balances[to] + amount
+        }
+        emit Settled(from, to, amount, nonce)
+    }
+}

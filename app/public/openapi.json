@@ -1,0 +1,45 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "HeartBix XPay",
+    "version": "0.1.0",
+    "x-guidance": "XPay is a USDT x402 micropayment rail. HTTP 402 on first GET is price discovery, not an error. Agents should pay with XPAY_API_KEY via POST https://xpay.heartbix.com/api/hub/x402/pay-url { \"url\" }. Spec: https://xpay.heartbix.com/llms.txt. Prefer npm i @heartbix/xpay, pip install xpay-client, or npx -y @heartbix/xpay-mcp.",
+    "description": "USDT HTTP 402 micropayments for APIs and AI agents. Deposit USDT on EVM, pay via x402, withdraw on a supported chain.",
+    "contact": { "email": "admin@heartbix.com", "url": "https://xpay.heartbix.com/support/api" }
+  },
+  "servers": [{ "url": "https://xpay.heartbix.com" }],
+  "paths": {
+    "/api/paid-joke": {
+      "get": {
+        "summary": "Paid demo (HTTP 402 exact)",
+        "description": "Returns a joke after an x402 exact payment. Probe this URL to discover XPay.",
+        "x-payment-info": {
+          "protocols": [{ "type": "x402" }],
+          "price": { "mode": "fixed", "currency": "USD", "amount": "0.001" }
+        },
+        "responses": {
+          "402": { "description": "Payment Required. Read accepts[] / PAYMENT-REQUIRED." },
+          "200": { "description": "Paid. JSON { joke, payer, txId }." }
+        }
+      }
+    },
+    "/api/pay/{payTo}/{slug}": {
+      "get": {
+        "summary": "Seller priced x402 URL",
+        "description": "Catalog price plus live x402 fee. Prefer POST /api/hub/x402/pay-url with x-api-key instead of signing.",
+        "parameters": [
+          { "name": "payTo", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "x-payment-info": {
+          "protocols": [{ "type": "x402" }],
+          "price": { "mode": "dynamic", "currency": "USD", "min": "0.001", "max": "100.00" }
+        },
+        "responses": {
+          "402": { "description": "Payment Required" },
+          "200": { "description": "Paid" }
+        }
+      }
+    }
+  }
+}

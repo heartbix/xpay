@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" role="img" aria-label="XPay">
+  <rect width="40" height="40" rx="10" fill="#0c192c"/>
+  <rect x="0.6" y="0.6" width="38.8" height="38.8" rx="9.4" stroke="#1e3a5f" stroke-width="1.2"/>
+  <path d="M10 9.5 L18.2 20 L10 30.5" stroke="#3b82f6" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M30 9.5 L21.8 20 L30 30.5" stroke="#fc7e14" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="18.2" y="18.2" width="3.6" height="3.6" rx="0.6" transform="rotate(45 20 20)" fill="#f1f5f9"/>
+</svg>

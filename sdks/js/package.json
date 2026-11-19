@@ -1,0 +1,23 @@
+{
+  "name": "@heartbix/xpay",
+  "version": "0.1.0",
+  "description": "Zero-dependency XPay client: intercept HTTP 402 and pay with an API key.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.cjs",
+  "module": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.cjs"
+    }
+  },
+  "files": ["index.js", "index.cjs", "index.d.ts", "README.md"],
+  "engines": { "node": ">=18" },
+  "keywords": ["x402", "xpay", "usdt", "micropayments", "alephium", "http-402"],
+  "homepage": "https://xpay.heartbix.com/llms.txt",
+  "repository": { "type": "git", "url": "https://github.com/heartbix/xpay" },
+  "publishConfig": { "access": "public" }
+}

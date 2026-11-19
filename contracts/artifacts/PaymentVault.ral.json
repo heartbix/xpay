@@ -1,0 +1,364 @@
+{
+  "version": "v4.5.5",
+  "name": "PaymentVault",
+  "bytecode": "040d0e1c4055408e40ac40e240fd41124154420a42ce43544469010000000103d33b90c592ce0202010000000103d3a887de3ca00002010001010115d3ab5ac590140a5f5f6d61705f5f305f5f16004744cbc5194c020c020c0d0d140a5f5f6d61705f5f305f5f16004744cb010102010001010115d30f80c75d140a5f5f6d61705f5f315f5f16004744cbc5194c020c020c0d0d140a5f5f6d61705f5f315f5f16004744cb010102010001010108d3e9af7de8140a5f5f6d61705f5f325f5f16004744cbc502010001010113d3f8b34e72140a5f5f6d61705f5f325f5f16004744cbc5117b0c0d0d140a5f5f6d61705f5f325f5f16004744cb01010201000505010bd319b28938b1160016011602160316041306644e02010001010008d36bca978cb4ce00450c7b1600a100010301020019d313a4baf1b41701140a5f5f6d61705f5f325f5f16014744cbc51913067b1601d1a2140a5f5f6d61705f5f325f5f16014744b11600d201010916015e0101010200404dd3d385e15ca000190d7b16000c3313077bb417011601ce021600ac140a5f5f6d61705f5f305f5f16014744cbc5194c0b1601d1a2140a5f5f6d61705f5f305f5f16014744b11600d201014a140c0d0d140a5f5f6d61705f5f305f5f16014744cb010116002a0c0e0c140a5f5f6d61705f5f305f5f16014744cb0102140a5f5f6d61705f5f315f5f16014744cbc5194c0a1601d1a2140a5f5f6d61705f5f315f5f16014744b10cd2010105160116005f01010203004058d367a5ef04a000190d7b16010c3313077bb4ce01457a4b0418b4ce00450c7bb417021602ce021601ac140a5f5f6d61705f5f305f5f16004744cbc5194c0b1602d1a2140a5f5f6d61705f5f305f5f16004744b11601d201014a140c0d0d140a5f5f6d61705f5f305f5f16004744cb010116012a0c0e0c140a5f5f6d61705f5f305f5f16004744cb0102140a5f5f6d61705f5f315f5f16004744cbc5194c0a1602d1a2140a5f5f6d61705f5f315f5f16004744b10cd2010106160016015f0102010200403dd30fb898cea000190d7b16000c3313077bb41701140a5f5f6d61705f5f305f5f16014744cbc50e7b0c0d0d140a5f5f6d61705f5f305f5f16014744cb01011600340e7b0c0d0d140a5f5f6d61705f5f305f5f16014744cb010116002b0c0e0c140a5f5f6d61705f5f305f5f16014744cb01021601ce021600ab07160116005f0102060700407fd37ff0dc33a000190d7b16020c3313077b56160432107b140a5f5f6d61705f5f325f5f16004744cbc5117b140a5f5f6d61705f5f315f5f16004744cbc50f7b0c0d0d140a5f5f6d61705f5f315f5f16004744cb010116032f0f7b140a5f5f6d61705f5f305f5f16004744cbc57a4c0c180c0d0d140a5f5f6d61705f5f305f5f16004744cb01011602340e7b160016011602160316040006170616060c0d0d140a5f5f6d61705f5f325f5f16004744cb01011605530c0d0d140a5f5f6d61705f5f305f5f16004744cb010116022b0c0e0c140a5f5f6d61705f5f305f5f16004744cb010216030d2a0c0e0c140a5f5f6d61705f5f315f5f16004744cb01021601ce021602ab08160016011602160361",
+  "codeHash": "9fb89f7b2ee87746f4072649a27ea531a7e3e6c5885172a4fdabda5b43fc4173",
+  "fieldsSig": {
+    "names": [
+      "admin",
+      "hub",
+      "usdtTokenId",
+      "paused"
+    ],
+    "types": [
+      "Address",
+      "Address",
+      "ByteVec",
+      "Bool"
+    ],
+    "isMutable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "eventsSig": [
+    {
+      "name": "Deposited",
+      "fieldNames": [
+        "user",
+        "amount"
+      ],
+      "fieldTypes": [
+        "Address",
+        "U256"
+      ]
+    },
+    {
+      "name": "Credited",
+      "fieldNames": [
+        "user",
+        "amount"
+      ],
+      "fieldTypes": [
+        "Address",
+        "U256"
+      ]
+    },
+    {
+      "name": "Withdrawn",
+      "fieldNames": [
+        "user",
+        "amount"
+      ],
+      "fieldTypes": [
+        "Address",
+        "U256"
+      ]
+    },
+    {
+      "name": "Settled",
+      "fieldNames": [
+        "from",
+        "to",
+        "amount",
+        "nonce"
+      ],
+      "fieldTypes": [
+        "Address",
+        "Address",
+        "U256",
+        "U256"
+      ]
+    },
+    {
+      "name": "PublicKeyRegistered",
+      "fieldNames": [
+        "user"
+      ],
+      "fieldTypes": [
+        "Address"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "getUsdtTokenId",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "ByteVec"
+      ]
+    },
+    {
+      "name": "isPaused",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "Bool"
+      ]
+    },
+    {
+      "name": "getBalance",
+      "paramNames": [
+        "user"
+      ],
+      "paramTypes": [
+        "Address"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": [
+        "U256"
+      ]
+    },
+    {
+      "name": "getNonce",
+      "paramNames": [
+        "user"
+      ],
+      "paramTypes": [
+        "Address"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": [
+        "U256"
+      ]
+    },
+    {
+      "name": "hasPublicKey",
+      "paramNames": [
+        "user"
+      ],
+      "paramTypes": [
+        "Address"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": [
+        "Bool"
+      ]
+    },
+    {
+      "name": "getPublicKey",
+      "paramNames": [
+        "user"
+      ],
+      "paramTypes": [
+        "Address"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": [
+        "ByteVec"
+      ]
+    },
+    {
+      "name": "paymentHash",
+      "paramNames": [
+        "from",
+        "to",
+        "amount",
+        "nonce",
+        "deadline"
+      ],
+      "paramTypes": [
+        "Address",
+        "Address",
+        "U256",
+        "U256",
+        "U256"
+      ],
+      "paramIsMutable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "returnTypes": [
+        "ByteVec"
+      ]
+    },
+    {
+      "name": "setPaused",
+      "paramNames": [
+        "value"
+      ],
+      "paramTypes": [
+        "Bool"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "registerPublicKey",
+      "paramNames": [
+        "publicKey"
+      ],
+      "paramTypes": [
+        "ByteVec"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "deposit",
+      "paramNames": [
+        "amount"
+      ],
+      "paramTypes": [
+        "U256"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "creditFromHub",
+      "paramNames": [
+        "user",
+        "amount"
+      ],
+      "paramTypes": [
+        "Address",
+        "U256"
+      ],
+      "paramIsMutable": [
+        false,
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "withdraw",
+      "paramNames": [
+        "amount"
+      ],
+      "paramTypes": [
+        "U256"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "settle",
+      "paramNames": [
+        "from",
+        "to",
+        "amount",
+        "nonce",
+        "deadline",
+        "signature"
+      ],
+      "paramTypes": [
+        "Address",
+        "Address",
+        "U256",
+        "U256",
+        "U256",
+        "ByteVec"
+      ],
+      "paramIsMutable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "returnTypes": []
+    }
+  ],
+  "constants": [],
+  "enums": [
+    {
+      "name": "ErrorCodes",
+      "fields": [
+        {
+          "name": "Unauthorized",
+          "value": {
+            "type": "U256",
+            "value": "0"
+          }
+        },
+        {
+          "name": "Paused",
+          "value": {
+            "type": "U256",
+            "value": "1"
+          }
+        },
+        {
+          "name": "InsufficientBalance",
+          "value": {
+            "type": "U256",
+            "value": "2"
+          }
+        },
+        {
+          "name": "InvalidNonce",
+          "value": {
+            "type": "U256",
+            "value": "3"
+          }
+        },
+        {
+          "name": "Expired",
+          "value": {
+            "type": "U256",
+            "value": "4"
+          }
+        },
+        {
+          "name": "PublicKeyMissing",
+          "value": {
+            "type": "U256",
+            "value": "5"
+          }
+        },
+        {
+          "name": "PublicKeyExists",
+          "value": {
+            "type": "U256",
+            "value": "6"
+          }
+        },
+        {
+          "name": "ZeroAmount",
+          "value": {
+            "type": "U256",
+            "value": "7"
+          }
+        }
+      ]
+    }
+  ],
+  "mapsSig": {
+    "names": [
+      "balances",
+      "nonces",
+      "publicKeys"
+    ],
+    "types": [
+      "Map[Address,U256]",
+      "Map[Address,U256]",
+      "Map[Address,ByteVec]"
+    ]
+  }
+}

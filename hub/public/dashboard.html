@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Deposit Hub — USDT in</title>
+    <style>
+      :root {
+        --bg: #f4efe7;
+        --ink: #1c1917;
+        --muted: #78716c;
+        --line: #e7e5e4;
+        --accent: #1c1917;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(ellipse 70% 45% at 0% 0%, #f8e7d4, transparent 55%),
+          radial-gradient(ellipse 50% 40% at 100% 0%, #dfe8f1, transparent 50%),
+          var(--bg);
+        min-height: 100vh;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 2rem 1.25rem 4rem;
+      }
+      h1 { margin: 0 0 0.4rem; font-size: clamp(1.8rem, 4vw, 2.4rem); }
+      .lead { color: var(--muted); margin: 0 0 1.5rem; line-height: 1.5; }
+      label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+      input, select, button {
+        width: 100%;
+        padding: 0.85rem 0.9rem;
+        border: 1px solid var(--ink);
+        background: #fff;
+        font: inherit;
+        margin-bottom: 0.9rem;
+      }
+      button {
+        background: var(--accent);
+        color: #fafaf9;
+        cursor: pointer;
+      }
+      button:hover { background: #44403c; }
+      .card {
+        border-top: 1px solid var(--line);
+        padding: 1rem 0;
+        margin-top: 0.5rem;
+      }
+      .mono { font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
+      .warn { color: #b45309; font-size: 0.9rem; }
+      .ok { color: #166534; }
+      .row { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; }
+      @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+      table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+      th, td { text-align: left; padding: 0.45rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Deposit Hub</h1>
+      <p class="lead">
+        Send USDT from any supported network to your personal deposit address.
+        The hub credits your Alephium PaymentVault balance (AlphUSD / MockUSDT).
+      </p>
+
+      <div class="row">
+        <div>
+          <label for="userId">User id</label>
+          <input id="userId" placeholder="auto if empty" />
+        </div>
+        <div>
+          <label for="alphAddress">Alephium address (for credit)</label>
+          <input id="alphAddress" placeholder="optional for address only" />
+        </div>
+      </div>
+
+      <label for="chain">Network</label>
+      <select id="chain"></select>
+
+      <button id="getAddress" type="button">Get deposit address</button>
+
+      <div class="card" id="result" hidden>
+        <div><strong>Send USDT to</strong></div>
+        <p class="mono" id="depositAddress"></p>
+        <div><strong>Token contract</strong></div>
+        <p class="mono" id="tokenAddress"></p>
+        <p class="warn" id="warning" hidden></p>
+      </div>
+
+      <div class="card">
+        <h2 style="margin:0 0 0.6rem; font-size:1.1rem;">Recent deposits</h2>
+        <button id="refresh" type="button">Refresh</button>
+        <div id="deposits"></div>
+      </div>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id)
+      let currentUserId = localStorage.getItem('hubUserId') || ''
+
+      async function loadChains() {
+        const res = await fetch('/api/chains')
+        const data = await res.json()
+        const select = $('chain')
+        select.innerHTML = data.chains.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+      }
+
+      async function getAddress() {
+        let userId = $('userId').value.trim() || currentUserId
+        if (!userId) userId = crypto.randomUUID()
+        currentUserId = userId
+        localStorage.setItem('hubUserId', userId)
+        $('userId').value = userId
+
+        const res = await fetch('/api/deposits/address', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            chain: $('chain').value,
+            alphAddress: $('alphAddress').value.trim() || undefined
+          })
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          alert(data.error || 'failed')
+          return
+        }
+        $('result').hidden = false
+        $('depositAddress').textContent = data.address
+        $('tokenAddress').textContent = data.token
+        if (data.warning) {
+          $('warning').hidden = false
+          $('warning').textContent = data.warning
+        } else {
+          $('warning').hidden = true
+        }
+        await refreshDeposits()
+      }
+
+      async function refreshDeposits() {
+        const userId = $('userId').value.trim() || currentUserId
+        const url = userId ? `/api/deposits?userId=${encodeURIComponent(userId)}` : '/api/deposits'
+        const res = await fetch(url)
+        const data = await res.json()
+        const rows = data.deposits || []
+        if (!rows.length) {
+          $('deposits').innerHTML = '<p class="lead">No deposits yet.</p>'
+          return
+        }
+        $('deposits').innerHTML = `<table>
+          <thead><tr><th>Chain</th><th>Amount</th><th>Status</th><th>Tx</th></tr></thead>
+          <tbody>
+            ${rows.map(d => `<tr>
+              <td>${d.chain}</td>
+              <td>${d.amountUsdt}</td>
+              <td class="${d.status === 'credited' ? 'ok' : ''}">${d.status}</td>
+              <td class="mono">${d.txHash.slice(0, 10)}…</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+      }
+
+      $('getAddress').onclick = getAddress
+      $('refresh').onclick = refreshDeposits
+      if (currentUserId) $('userId').value = currentUserId
+      loadChains().then(refreshDeposits)
+    </script>
+  </body>
+</html>

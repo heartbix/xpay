@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "resources": ["https://xpay.heartbix.com/api/paid-joke"],
+  "instructions": "https://xpay.heartbix.com/llms.txt"
+}

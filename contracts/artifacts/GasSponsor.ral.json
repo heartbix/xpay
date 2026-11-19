@@ -1,0 +1,195 @@
+{
+  "version": "v4.5.5",
+  "name": "GasSponsor",
+  "bytecode": "050a0e1c402a403840554072408f40d440ea4102010000000103d33b90c592ce0102010000000103d3cbbea734a00102010000000103d3a8c36f7ca00202010000000103d3a887de3ca0000201000101000dd36bca978cb4ce00450c7b1600a10006a001a002a0006001000101000dd368feaec0b4ce00450c7b1600a10106a001a002a0006001000101000dd31440ca08b4ce00450c7b1600a10206a001a002a0006001010003004026d36cc5c83da000190d7bb417000c1701a0010c334c061600ce01a001aca0011701b281d00c1702a0020c334c051600a002a8a00217020516001601160260010202020009d308a27d05b4ce00450c7b16001601a801020202000ad3edd9c9a0b4ce00450c7b1600ce011601ab",
+  "codeHash": "3e531b4e68fbfd6a368c0936031afa3e53c992cf2189829d964c87d2d3a1311d",
+  "fieldsSig": {
+    "names": [
+      "admin",
+      "usdtTokenId",
+      "paused",
+      "usdtFee",
+      "dustTopUp"
+    ],
+    "types": [
+      "Address",
+      "ByteVec",
+      "Bool",
+      "U256",
+      "U256"
+    ],
+    "isMutable": [
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "eventsSig": [
+    {
+      "name": "Sponsored",
+      "fieldNames": [
+        "caller",
+        "usdtFeePaid",
+        "dustSent"
+      ],
+      "fieldTypes": [
+        "Address",
+        "U256",
+        "U256"
+      ]
+    },
+    {
+      "name": "ConfigUpdated",
+      "fieldNames": [
+        "usdtFee",
+        "dustTopUp",
+        "paused"
+      ],
+      "fieldTypes": [
+        "U256",
+        "U256",
+        "Bool"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "getUsdtTokenId",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "ByteVec"
+      ]
+    },
+    {
+      "name": "getUsdtFee",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "U256"
+      ]
+    },
+    {
+      "name": "getDustTopUp",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "U256"
+      ]
+    },
+    {
+      "name": "isPaused",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "Bool"
+      ]
+    },
+    {
+      "name": "setPaused",
+      "paramNames": [
+        "value"
+      ],
+      "paramTypes": [
+        "Bool"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "setUsdtFee",
+      "paramNames": [
+        "value"
+      ],
+      "paramTypes": [
+        "U256"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "setDustTopUp",
+      "paramNames": [
+        "value"
+      ],
+      "paramTypes": [
+        "U256"
+      ],
+      "paramIsMutable": [
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "sponsoredPing",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": []
+    },
+    {
+      "name": "withdrawAlph",
+      "paramNames": [
+        "to",
+        "amount"
+      ],
+      "paramTypes": [
+        "Address",
+        "U256"
+      ],
+      "paramIsMutable": [
+        false,
+        false
+      ],
+      "returnTypes": []
+    },
+    {
+      "name": "withdrawUsdt",
+      "paramNames": [
+        "to",
+        "amount"
+      ],
+      "paramTypes": [
+        "Address",
+        "U256"
+      ],
+      "paramIsMutable": [
+        false,
+        false
+      ],
+      "returnTypes": []
+    }
+  ],
+  "constants": [],
+  "enums": [
+    {
+      "name": "ErrorCodes",
+      "fields": [
+        {
+          "name": "Unauthorized",
+          "value": {
+            "type": "U256",
+            "value": "0"
+          }
+        },
+        {
+          "name": "Paused",
+          "value": {
+            "type": "U256",
+            "value": "1"
+          }
+        }
+      ]
+    }
+  ]
+}

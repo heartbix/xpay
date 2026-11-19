@@ -1,0 +1,16 @@
+[Unit]
+Description=XPay deposit watcher
+After=network.target xpay-hub.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/xpay/hub
+EnvironmentFile=/opt/xpay/.env
+Environment=HUB_AUTO_CREDIT=1
+ExecStart=/usr/bin/node dist/watcher.js
+Restart=on-failure
+RestartSec=5
+MemoryMax=150M
+
+[Install]
+WantedBy=multi-user.target

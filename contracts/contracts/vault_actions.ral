@@ -1,0 +1,27 @@
+TxScript RegisterVaultKey(vault: PaymentVault, publicKey: ByteVec) {
+    let user = callerAddress!()
+    vault.registerPublicKey{user -> ALPH: mapEntryDeposit!()}(publicKey)
+}
+
+TxScript DepositToVault(vault: PaymentVault, usdtTokenId: ByteVec, amount: U256) {
+    let user = callerAddress!()
+    // Approve USDT + up to 2 map entry deposits (balance + nonce) for first-time users
+    vault.deposit{user -> ALPH: mapEntryDeposit!() * 2, usdtTokenId: amount}(amount)
+}
+
+TxScript WithdrawFromVault(vault: PaymentVault, amount: U256) {
+    vault.withdraw(amount)
+}
+
+TxScript SettlePayment(
+    vault: PaymentVault,
+    from: Address,
+    to: Address,
+    amount: U256,
+    nonce: U256,
+    deadline: U256,
+    signature: ByteVec
+) {
+    let caller = callerAddress!()
+    vault.settle{caller -> ALPH: mapEntryDeposit!() * 2}(from, to, amount, nonce, deadline, signature)
+}

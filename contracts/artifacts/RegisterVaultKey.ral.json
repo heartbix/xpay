@@ -1,0 +1,28 @@
+{
+  "version": "v4.5.5",
+  "name": "RegisterVaultKey",
+  "bytecodeTemplate": "0101030001000ab417001600d1a2{1}0d0c{0}0108",
+  "fieldsSig": {
+    "names": [
+      "vault",
+      "publicKey"
+    ],
+    "types": [
+      "PaymentVault",
+      "ByteVec"
+    ],
+    "isMutable": [
+      false,
+      false
+    ]
+  },
+  "functions": [
+    {
+      "name": "main",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": []
+    }
+  ]
+}

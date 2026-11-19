@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xpay-client"
+version = "0.1.0"
+description = "Zero-dependency XPay client: intercept HTTP 402 and pay with an API key."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["x402", "xpay", "usdt", "micropayments", "alephium"]
+authors = [{ name = "HeartBix" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+]
+
+[project.urls]
+Homepage = "https://xpay.heartbix.com/llms.txt"
+Documentation = "https://xpay.heartbix.com/support/api"
+
+[tool.setuptools.packages.find]
+include = ["xpay_client*"]

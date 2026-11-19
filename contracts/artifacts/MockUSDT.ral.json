@@ -1,0 +1,134 @@
+{
+  "version": "v4.5.5",
+  "name": "MockUSDT",
+  "bytecode": "070709121b4024403240404069010000000102ce0002010000000102ce0102010000000102ce0202010000000102ce0302010000000103d3c3401fcaa00002010000000103d3fbebbc3ece0402010200000017d363ba19b8ce040c330c7ba000ce04340d7bb4b1ce04aba000ce042ba10005b4ce045f",
+  "codeHash": "7005f8a8056cc132553fe696da70bfe6e0345ae69038c80cd0024e3adddc9a5c",
+  "fieldsSig": {
+    "names": [
+      "symbol",
+      "name",
+      "decimals",
+      "supply",
+      "balance",
+      "claimAmount",
+      "__stdInterfaceId"
+    ],
+    "types": [
+      "ByteVec",
+      "ByteVec",
+      "U256",
+      "U256",
+      "U256",
+      "U256",
+      "ByteVec"
+    ],
+    "isMutable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "eventsSig": [
+    {
+      "name": "Claim",
+      "fieldNames": [
+        "to",
+        "amount"
+      ],
+      "fieldTypes": [
+        "Address",
+        "U256"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "getSymbol",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "ByteVec"
+      ]
+    },
+    {
+      "name": "getName",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "ByteVec"
+      ]
+    },
+    {
+      "name": "getDecimals",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "U256"
+      ]
+    },
+    {
+      "name": "getTotalSupply",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "U256"
+      ]
+    },
+    {
+      "name": "getBalance",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "U256"
+      ]
+    },
+    {
+      "name": "getClaimAmount",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": [
+        "U256"
+      ]
+    },
+    {
+      "name": "claim",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": []
+    }
+  ],
+  "constants": [],
+  "enums": [
+    {
+      "name": "ErrorCodes",
+      "fields": [
+        {
+          "name": "InvalidClaimAmount",
+          "value": {
+            "type": "U256",
+            "value": "0"
+          }
+        },
+        {
+          "name": "InsufficientFaucetBalance",
+          "value": {
+            "type": "U256",
+            "value": "1"
+          }
+        }
+      ]
+    }
+  ],
+  "stdInterfaceId": "0001"
+}

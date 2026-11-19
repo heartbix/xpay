@@ -1,0 +1,88 @@
+// Pays transaction gas (and optional dust top-up) so users can act in USDT terms.
+Contract GasSponsor(
+    admin: Address,
+    usdtTokenId: ByteVec,
+    mut paused: Bool,
+    mut usdtFee: U256,
+    mut dustTopUp: U256
+) {
+    event Sponsored(caller: Address, usdtFeePaid: U256, dustSent: U256)
+    event ConfigUpdated(usdtFee: U256, dustTopUp: U256, paused: Bool)
+
+    enum ErrorCodes {
+        Unauthorized = 0
+        Paused = 1
+    }
+
+    pub fn getUsdtTokenId() -> ByteVec {
+        return usdtTokenId
+    }
+
+    pub fn getUsdtFee() -> U256 {
+        return usdtFee
+    }
+
+    pub fn getDustTopUp() -> U256 {
+        return dustTopUp
+    }
+
+    pub fn isPaused() -> Bool {
+        return paused
+    }
+
+    @using(updateFields = true)
+    pub fn setPaused(value: Bool) -> () {
+        checkCaller!(callerAddress!() == admin, ErrorCodes.Unauthorized)
+        paused = value
+        emit ConfigUpdated(usdtFee, dustTopUp, paused)
+    }
+
+    @using(updateFields = true)
+    pub fn setUsdtFee(value: U256) -> () {
+        checkCaller!(callerAddress!() == admin, ErrorCodes.Unauthorized)
+        usdtFee = value
+        emit ConfigUpdated(usdtFee, dustTopUp, paused)
+    }
+
+    @using(updateFields = true)
+    pub fn setDustTopUp(value: U256) -> () {
+        checkCaller!(callerAddress!() == admin, ErrorCodes.Unauthorized)
+        dustTopUp = value
+        emit ConfigUpdated(usdtFee, dustTopUp, paused)
+    }
+
+    // Demo sponsored action: collect optional USDT fee, pay gas, optional dust top-up.
+    @using(preapprovedAssets = true, assetsInContract = true, checkExternalCaller = false)
+    pub fn sponsoredPing() -> () {
+        assert!(!paused, ErrorCodes.Paused)
+
+        let caller = callerAddress!()
+        let mut feePaid = 0
+        if (usdtFee > 0) {
+            transferTokenToSelf!(caller, usdtTokenId, usdtFee)
+            feePaid = usdtFee
+        }
+
+        payGasFee!(selfAddress!(), txGasFee!())
+
+        let mut dustSent = 0
+        if (dustTopUp > 0) {
+            transferTokenFromSelf!(caller, ALPH, dustTopUp)
+            dustSent = dustTopUp
+        }
+
+        emit Sponsored(caller, feePaid, dustSent)
+    }
+
+    @using(assetsInContract = true)
+    pub fn withdrawAlph(to: Address, amount: U256) -> () {
+        checkCaller!(callerAddress!() == admin, ErrorCodes.Unauthorized)
+        transferTokenFromSelf!(to, ALPH, amount)
+    }
+
+    @using(assetsInContract = true)
+    pub fn withdrawUsdt(to: Address, amount: U256) -> () {
+        checkCaller!(callerAddress!() == admin, ErrorCodes.Unauthorized)
+        transferTokenFromSelf!(to, usdtTokenId, amount)
+    }
+}

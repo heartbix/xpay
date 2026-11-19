@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Allow: /llms.txt
+Allow: /skill.md
+Allow: /.well-known/llms.txt
+Allow: /.well-known/x402
+Allow: /openapi.json
+Allow: /support
+Allow: /support/api
+Allow: /support/x402
+
+Sitemap: https://xpay.heartbix.com/support/api

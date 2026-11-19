@@ -1,0 +1,30 @@
+node_modules/
+
+.ralph-lsp
+
+.env
+.env.local
+.env*.local
+.hub_mnemonic.env
+*.pem
+
+# local junk / deploy bundles
+*.tgz
+*.tar.gz
+*.mp4
+*.xlsx
+~$*.xlsx
+unnamed.jpg
+unnamed (1).jpg
+_deploy_stage/
+_deploy_web/
+_tmp_*
+_check_env_keys.js
+_x402_pr/
+hub/dist/
+hub/hub-dist.tar
+sdks/python/dist/
+sdks/python/*.egg-info/
+
+.DS_Store
+*.tsbuildinfo

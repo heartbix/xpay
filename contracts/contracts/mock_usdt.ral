@@ -1,0 +1,53 @@
+import "std/fungible_token_interface"
+
+// Testnet stand-in for hub-backed AlphUSD / bridged USDT (6 decimals).
+Contract MockUSDT(
+    symbol: ByteVec,
+    name: ByteVec,
+    decimals: U256,
+    supply: U256,
+    mut balance: U256,
+    claimAmount: U256
+) implements IFungibleToken {
+
+    event Claim(to: Address, amount: U256)
+
+    enum ErrorCodes {
+        InvalidClaimAmount = 0
+        InsufficientFaucetBalance = 1
+    }
+
+    pub fn getTotalSupply() -> U256 {
+        return supply
+    }
+
+    pub fn getSymbol() -> ByteVec {
+        return symbol
+    }
+
+    pub fn getName() -> ByteVec {
+        return name
+    }
+
+    pub fn getDecimals() -> U256 {
+        return decimals
+    }
+
+    pub fn getBalance() -> U256 {
+        return balance
+    }
+
+    pub fn getClaimAmount() -> U256 {
+        return claimAmount
+    }
+
+    // Faucet claim for demo onboarding (fixed amount).
+    @using(assetsInContract = true, updateFields = true, checkExternalCaller = false)
+    pub fn claim() -> () {
+        assert!(claimAmount > 0, ErrorCodes.InvalidClaimAmount)
+        assert!(balance >= claimAmount, ErrorCodes.InsufficientFaucetBalance)
+        transferTokenFromSelf!(callerAddress!(), selfTokenId!(), claimAmount)
+        balance = balance - claimAmount
+        emit Claim(callerAddress!(), claimAmount)
+    }
+}

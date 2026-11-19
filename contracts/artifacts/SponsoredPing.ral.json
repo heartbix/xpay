@@ -1,0 +1,31 @@
+{
+  "version": "v4.5.5",
+  "name": "SponsoredPing",
+  "bytecodeTemplate": "01010300000008b4{1}{2}a30c0c{0}0107",
+  "fieldsSig": {
+    "names": [
+      "sponsor",
+      "usdtTokenId",
+      "usdtFee"
+    ],
+    "types": [
+      "GasSponsor",
+      "ByteVec",
+      "U256"
+    ],
+    "isMutable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "functions": [
+    {
+      "name": "main",
+      "paramNames": [],
+      "paramTypes": [],
+      "paramIsMutable": [],
+      "returnTypes": []
+    }
+  ]
+}
