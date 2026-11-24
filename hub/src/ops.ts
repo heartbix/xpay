@@ -20,6 +20,7 @@ import {
 } from './store'
 import { hopCostForPayout } from './across'
 import { evmTxCostUsdtAtomic } from './tx-cost'
+import { readVaultBalance } from './alph-x402'
 
 const ERC20_ABI = ['function balanceOf(address owner) view returns (uint256)']
 
@@ -366,6 +367,14 @@ export async function platformSnapshot() {
   const liabilities = users.reduce((n, u) => n + availableBalanceAtomic(u.userId), 0n)
   const x402Volume = received.reduce((n, p) => n + BigInt(p.totalAtomic || p.priceAtomic || '0'), 0n)
 
+  // Test-mode accounts hold seeded demo balance. It is real ledger weight but
+  // it is not a claim on the treasury, so it must be reported apart from the
+  // liabilities that real customers can actually withdraw.
+  const testLiabilities = users
+    .filter((u) => u.testMode === true)
+    .reduce((n, u) => n + availableBalanceAtomic(u.userId), 0n)
+  const realLiabilities = liabilities - testLiabilities
+
   const x402Fee = await quoteX402Fee()
   const sampleWithdraw = await quoteWithdrawFee('ethereum')
 
@@ -383,6 +392,37 @@ export async function platformSnapshot() {
   const deviationPct =
     realUsdtAtomic > 0n ? Number((deviationAtomic * 10000n) / realUsdtAtomic) / 100 : liabilities > 0n ? 100 : 0
 
+  // The vault is the on-chain ledger. It only ever grows from the hub side
+  // (creditFromHub), so it can drift above the hub.json ledger after a reset.
+  // A positive gap means the vault holds more than the books claim; a negative
+  // gap means the books promise more than the chain can pay.
+  const vaultBalances = await Promise.all(
+    users.map(async (u) => {
+      if (!u.alphAddress) return { userId: u.userId, label: userLabel(u.userId), ledger: 0n, vault: 0n }
+      try {
+        const vault = await readVaultBalance(u.alphAddress)
+        return { userId: u.userId, label: userLabel(u.userId), ledger: availableBalanceAtomic(u.userId), vault }
+      } catch {
+        return { userId: u.userId, label: userLabel(u.userId), ledger: availableBalanceAtomic(u.userId), vault: 0n }
+      }
+    })
+  )
+  const vaultTotal = vaultBalances.reduce((n, r) => n + r.vault, 0n)
+  const vaultGapAtomic = vaultTotal - liabilities
+  const vaultDrift = vaultBalances
+    .filter((r) => r.vault !== r.ledger)
+    .map((r) => ({
+      label: r.label,
+      ledgerAtomic: r.ledger.toString(),
+      vaultAtomic: r.vault.toString(),
+      gapAtomic: (r.vault - r.ledger).toString()
+    }))
+    .sort((a, b) => {
+      const x = BigInt(b.gapAtomic)
+      const y = BigInt(a.gapAtomic)
+      return x > y ? 1 : x < y ? -1 : 0
+    })
+
   return {
     generatedAt: new Date().toISOString(),
     network: process.env.ALEPHIUM_NETWORK ?? 'testnet',
@@ -390,10 +430,26 @@ export async function platformSnapshot() {
       realUsdtAtomic: realUsdtAtomic.toString(),
       mockUsdtAtomic: mockUsdtAtomic.toString(),
       userLiabilitiesAtomic: liabilities.toString(),
+      testLiabilitiesAtomic: testLiabilities.toString(),
+      realLiabilitiesAtomic: realLiabilities.toString(),
       deviationAtomic: deviationAtomic.toString(),
       deviationPct,
       covered: deviationAtomic <= 0n,
       note: 'real = treasury USDT on EVM chains; mock = MockUSDT on Alephium; liabilities = sum of user balances'
+    },
+    reconciliation: {
+      ledgerLiabilitiesAtomic: liabilities.toString(),
+      testLiabilitiesAtomic: testLiabilities.toString(),
+      realLiabilitiesAtomic: realLiabilities.toString(),
+      vaultTotalAtomic: vaultTotal.toString(),
+      vaultGapAtomic: vaultGapAtomic.toString(),
+      vaultGapPct:
+        liabilities > 0n ? Number((vaultGapAtomic * 10000n) / liabilities) / 100 : vaultTotal > 0n ? 100 : 0,
+      treasuryUsdtAtomic: realUsdtAtomic.toString(),
+      treasuryVsRealLiabilitiesAtomic: (realUsdtAtomic - realLiabilities).toString(),
+      balanced: vaultGapAtomic === 0n && realUsdtAtomic >= realLiabilities,
+      drift: vaultDrift,
+      note: 'vaultGap = vault on-chain minus ledger; positive means the vault holds more than the books claim'
     },
     watchChains: (process.env.HUB_WATCH_CHAINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     autoSweep: process.env.HUB_AUTO_SWEEP === '1',
