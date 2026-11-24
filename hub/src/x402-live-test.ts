@@ -276,9 +276,11 @@ function formatAtomicUsdt(atomic: string | bigint): string {
   return frac ? `${whole}.${frac}` : whole.toString()
 }
 
-/** Inclusive 0.001–0.005 USDT (1000–5000 atomic). */
-function randomCatalogAtomic(): string {
-  return String(1000 + Math.floor(Math.random() * 4001))
+/** Fixed demo price: 1 USDT per x402 pay. */
+const DEMO_PRICE_ATOMIC = '1000000'
+
+function demoPriceAtomic(): string {
+  return DEMO_PRICE_ATOMIC
 }
 
 /** Random catalog prices that sum exactly to `total` atomic, each at least 0.001 USDT. */
@@ -347,7 +349,7 @@ export async function runDirectedBurst(opts: {
   const feeAtomic = BigInt(fee.totalUsdtAtomic || '0')
   const prices = totalOpt
     ? splitTotalAtomic(BigInt(totalOpt), count)
-    : Array.from({ length: count }, () => randomCatalogAtomic())
+    : Array.from({ length: count }, () => demoPriceAtomic())
   const need = prices.reduce((n, p) => n + BigInt(p) + feeAtomic, 0n)
   const hubBal = availableBalanceAtomic(buyer.userId)
   if (hubBal < need) {
@@ -703,7 +705,7 @@ export async function runCrowdFill(opts: {
   }
   const vault = PaymentVault.at(loadDeployments(network).contracts.PaymentVault.contractInstance.address)
   const fee = await withTimeout(quoteX402Fee(), 15000, 'quoteX402Fee')
-  const budget = BigInt(paysEach) * (5000n + BigInt(fee.totalUsdtAtomic || '0')) + 2000n
+  const budget = BigInt(paysEach) * (BigInt(DEMO_PRICE_ATOMIC) + BigInt(fee.totalUsdtAtomic || '0')) + 2000n
   const emails: string[] = []
   for (let i = 1; i <= customers; i++) {
     const user = ensureCrowdUser(i)
@@ -742,31 +744,74 @@ export async function runCrowdFill(opts: {
 
 let trafficTimer: ReturnType<typeof setInterval> | undefined
 
+/**
+ * Demo traffic rotates through three phases so the dashboard shows both
+ * directions of flow instead of a one-way drain into admin:
+ *   0 → each crowd account pays admin 1 USDT
+ *   1 → admin pays each crowd account 1 USDT
+ *   2 → each crowd account pays admin 1 USDT again
+ * The phase advances once per interval, so a full cycle takes three hours.
+ */
+const TRAFFIC_PHASES = ['crowd_to_admin', 'admin_to_crowd', 'crowd_to_admin'] as const
+type TrafficPhase = (typeof TRAFFIC_PHASES)[number]
+
+let trafficPhaseIndex = 0
+
+export function currentTrafficPhase(): TrafficPhase {
+  return TRAFFIC_PHASES[trafficPhaseIndex % TRAFFIC_PHASES.length]
+}
+
+async function runTrafficPhase(phase: TrafficPhase, customers: number): Promise<number> {
+  const flowId = uuidv4()
+  const emails: string[] = []
+  for (let i = 1; i <= customers; i++) {
+    const user = ensureCrowdUser(i)
+    emails.push(user.email || crowdEmail(i))
+  }
+  const adminToCrowd = phase === 'admin_to_crowd'
+  let pays = 0
+  await runSequential(emails, async (email, idx) => {
+    try {
+      const r = await runDirectedBurst({
+        flowId,
+        buyerEmail: adminToCrowd ? SELLER_EMAIL : email,
+        sellerEmail: adminToCrowd ? email : SELLER_EMAIL,
+        slug: adminToCrowd ? `admin-to-crowd-${idx + 1}` : `crowd-${idx + 1}`,
+        count: 1
+      })
+      pays += r.pays.length
+    } catch (e: any) {
+      console.error(`[x402-traffic] ${phase} failed ${email}: ${e?.message ?? e}`)
+    }
+  })
+  return pays
+}
+
 export function startTrafficLoop(): void {
   if (process.env.HUB_X402_TRAFFIC === '0') {
     console.log('[x402-traffic] disabled')
     return
   }
   if (trafficTimer) return
-  const ms = Number(process.env.HUB_X402_TRAFFIC_MS ?? 10 * 60 * 1000)
-  const interval = Number.isFinite(ms) && ms >= 60_000 ? ms : 10 * 60 * 1000
+  const ms = Number(process.env.HUB_X402_TRAFFIC_MS ?? 60 * 60 * 1000)
+  const interval = Number.isFinite(ms) && ms >= 60_000 ? ms : 60 * 60 * 1000
   const customers = Math.min(Math.max(Number(process.env.HUB_X402_TRAFFIC_CUSTOMERS ?? 8), 1), 8)
-  const paysEach = Math.min(Math.max(Number(process.env.HUB_X402_TRAFFIC_PAYS ?? 1), 1), 5)
-  console.log(`[x402-traffic] every ${interval}ms · ${customers}×${paysEach}`)
+  console.log(`[x402-traffic] every ${interval}ms · ${customers} accounts · phases ${TRAFFIC_PHASES.join(' → ')}`)
   const tick = async () => {
     if (volumeRunning || liveRunning) {
       console.log('[x402-traffic] skip busy')
       return
     }
     volumeRunning = true
+    const phase = currentTrafficPhase()
     try {
-      const r = await runCrowdFill({ customers, paysEach })
-      const pays = r.bursts.reduce((n, b) => n + b.pays.length, 0)
-      console.log(`[x402-traffic] ok accounts=${r.bursts.length} pays=${pays}`)
+      const pays = await runTrafficPhase(phase, customers)
+      console.log(`[x402-traffic] ok phase=${phase} accounts=${customers} pays=${pays}`)
     } catch (e: any) {
-      console.error(`[x402-traffic] failed ${e?.message ?? String(e)}`)
+      console.error(`[x402-traffic] failed phase=${phase} ${e?.message ?? String(e)}`)
     } finally {
       volumeRunning = false
+      trafficPhaseIndex = (trafficPhaseIndex + 1) % TRAFFIC_PHASES.length
     }
   }
   setTimeout(() => {
