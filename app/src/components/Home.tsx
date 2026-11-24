@@ -14,15 +14,11 @@ type PublicStats = {
   minChargeUsdt: string
 }
 
-/** Homepage volume: +1000 USDT, 3 decimals to match min charge 0.001. */
-const HOMEPAGE_VOLUME_BOOST_ATOMIC = 1000n * 1_000_000n
-
-function formatUsdtPaid(atomic: string): string {
-  const n = BigInt(atomic || '0') + HOMEPAGE_VOLUME_BOOST_ATOMIC
-  const milli = (n + 500n) / 1000n
-  const whole = milli / 1000n
-  const frac = (milli % 1000n).toString().padStart(3, '0')
-  return `${whole.toLocaleString()}.${frac}`
+function formatUsdtShort(atomic: string): string {
+  const n = BigInt(atomic || '0')
+  const whole = n / 1_000_000n
+  const frac = (n % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+  return frac ? `${whole}.${frac}` : whole.toLocaleString()
 }
 
 export default function Home() {
@@ -125,7 +121,7 @@ export default function Home() {
             <div>
               <span>USDT paid</span>
               <strong className={styles.statValue}>
-                {stats ? `${formatUsdtPaid(stats.x402VolumeAtomic)} USDT` : '…'}
+                {stats ? `${formatUsdtShort(stats.x402VolumeAtomic)} USDT` : '…'}
               </strong>
             </div>
             <div>

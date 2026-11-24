@@ -224,7 +224,7 @@ addr = hub("POST", "/deposits/address", json_body={"chain": "bsc", "token": "USD
 fee = hub("GET", "/fees/quote?kind=withdraw&chain=bsc", expected=200)
 # { "totalUsdtAtomic": "…", "gasUsdtAtomic": "…", … }
 
-# Withdrawals are signed-in browser only (not x-api-key). Currently paused on production.`}</pre>
+# Withdrawals are signed-in browser only (not x-api-key): manual payout or auto-transfer.`}</pre>
 
       <h2 className={styles.sectionTitle}>1. Auth</h2>
       <pre className={styles.codeBox}>{`# Register
@@ -323,19 +323,36 @@ curl -i -H "PAYMENT-SIGNATURE: <base64>" -H "Accept: application/json" \\
 
       <h2 className={styles.sectionTitle}>6. Withdraw</h2>
       <p className={styles.sectionLead}>
-        Withdrawals are paused until we re-enable them. When unlocked, use the signed-in account page only (not an API
-        key) and a wallet saved at least 24 hours earlier.
+        Withdrawals are not an API-key operation. They run from the signed-in account page only, and the destination
+        wallet must have been saved at least 24 hours earlier. Two modes are available:
       </p>
-      <pre className={styles.codeBox}>{`curl -sS "https://xpay.heartbix.com/api/hub/fees/quote?kind=withdraw&chain=ethereum"`}</pre>
+      <ul className={styles.sectionLead} style={{ margin: '0.5rem 0', paddingLeft: '1.25rem' }}>
+        <li>
+          <strong>Manual payout</strong> — you pick the amount and destination, then confirm. The payout is queued and
+          sent on-chain.
+        </li>
+        <li>
+          <strong>Auto-transfer</strong> — you enable it once in account settings. After that, whenever your spendable
+          balance reaches your payout threshold, a payout of the available balance is scheduled automatically to your
+          saved wallet.
+        </li>
+      </ul>
       <p className={styles.sectionLead}>
-        Response includes <code>status</code> (<code>scheduled</code> then <code>sent</code> or <code>failed</code>),{' '}
+        Both modes share the same fee. Quote it first with{' '}
+        <code>GET /api/hub/fees/quote?kind=withdraw&amp;chain=ethereum</code>; the response carries{' '}
+        <code>totalUsdtAtomic</code> and <code>gasUsdtAtomic</code>. A payout record then moves through{' '}
+        <code>status</code> <code>scheduled</code> → <code>sent</code> or <code>failed</code>, with{' '}
         <code>netAtomic</code>, <code>feeAtomic</code>, and <code>txHash</code> when sent.
       </p>
-      <pre className={styles.codeBox}>{`# Saved withdraw addresses
+      <pre className={styles.codeBox}>{`# Saved withdraw addresses (required before any payout)
 GET    /api/hub/destinations
 POST   /api/hub/destinations
   { "label": "cold", "chain": "ethereum", "token": "USDT", "address": "0x…" }
-DELETE /api/hub/destinations/:id`}</pre>
+DELETE /api/hub/destinations/:id
+
+# Auto-transfer toggle
+POST   /api/hub/me/settings
+  { "payoutEnabled": true }`}</pre>
 
       <h2 className={styles.sectionTitle}>7. Other routes</h2>
       <pre className={styles.codeBox}>{`GET  /api/hub/keys
