@@ -21,6 +21,11 @@ export default function TermsPage() {
         treasury USDT to the payout network. HeartBix may sweep deposits to treasury; that does not change your ledger
         balance.
       </p>
+      <p className={styles.sectionLead}>
+        A newly saved withdrawal address cannot receive funds for <strong>24 hours</strong>. This delay protects your
+        balance if someone else gains access to your account. You can save an address at any time; the account page
+        shows when each one becomes ready.
+      </p>
 
       <h2 className={styles.sectionTitle}>x402 and Alephium</h2>
       <p className={styles.sectionLead}>

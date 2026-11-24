@@ -207,6 +207,18 @@ function withdrawSplit(amount: string, quote?: HubFeeQuote) {
   return { gross, network, vault, fee, net }
 }
 
+/** Mirrors HUB_PAYOUT_DEST_WAIT_MS (24h) so the UI can show when a wallet unlocks. */
+const DEST_WAIT_MS = 24 * 60 * 60 * 1000
+
+function destinationStatus(createdAt: string): { ready: boolean; label: string } {
+  const age = Date.now() - Date.parse(createdAt)
+  if (!Number.isFinite(age)) return { ready: false, label: 'Pending' }
+  const left = DEST_WAIT_MS - age
+  if (left <= 0) return { ready: true, label: 'Ready' }
+  const hours = Math.ceil(left / (60 * 60 * 1000))
+  return { ready: false, label: hours <= 1 ? 'Ready in under 1h' : `Ready in ${hours}h` }
+}
+
 function matchesX402Search(row: HubX402Payment, query: string): boolean {
   if (!query) return true
   const hay = [row.txId, row.slug, row.direction, row.priceAtomic, row.feeAtomic, row.totalAtomic, row.id]
@@ -667,9 +679,14 @@ export function AccountApp() {
       return 'Treasury is still moving USDT to that network. Try again shortly.'
     }
     if (code === 'payouts_locked') return 'Withdrawals are paused.'
-    if (code === 'destination_not_saved') return 'Save this wallet first, then wait 24 hours before withdrawing to it.'
+    if (code === 'destination_not_saved') {
+      return 'Save this wallet under Addresses first. It can receive a withdrawal 24 hours after you save it.'
+    }
     if (code === 'destination_cooling_down') {
-      return 'New wallets cannot receive a withdraw for 24 hours after you save them.'
+      return 'This wallet is still in its 24-hour safety hold. Check the Status column under Addresses to see when it unlocks.'
+    }
+    if (code === 'test_account_no_payout') {
+      return 'This is a demo account. Demo balances can pay x402 URLs but cannot be withdrawn.'
     }
     if (code === 'payout_rate_limited') return 'Wait 15 minutes between withdraws.'
     if (code === 'forbidden_origin' || code === 'session_required') {
@@ -710,7 +727,12 @@ export function AccountApp() {
     }
     const dest = me?.destinations?.find((d) => d.id === withdrawDestId)
     if (!dest?.address) {
-      setError('Save this wallet first, then wait 24 hours before withdrawing to it.')
+      setError('Pick a saved wallet first. New wallets can receive a withdrawal 24 hours after you save them.')
+      return
+    }
+    const status = destinationStatus(dest.createdAt)
+    if (!status.ready) {
+      setError(`This wallet is still in its 24-hour safety hold — ${status.label.toLowerCase()}.`)
       return
     }
     await onPayout({
@@ -1728,8 +1750,14 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                     <p className={styles.modalLead}>
                       {profile.payoutsEnabled === false
                         ? 'Withdrawals are paused. You can still save a wallet address.'
-                        : 'Withdraw USDT to a wallet you already saved. New addresses must wait 24 hours. Fee is 2× dest gas; a small route extra applies only if treasury must hop onto this chain.'}
+                        : 'Withdraw USDT to a wallet you already saved. Fee is 2× dest gas; a small route extra applies only if treasury must hop onto this chain.'}
                     </p>
+                    {profile.payoutsEnabled !== false && (
+                      <p className={styles.modalLead}>
+                        A wallet must be saved for 24 hours before it can receive a withdrawal. Check the Status column
+                        under Addresses to see when each one unlocks.
+                      </p>
+                    )}
                     <div className={styles.modalRow}>
                       <label className={styles.field}>
                         <span>Token</span>
@@ -1885,7 +1913,10 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
             {fundModal === 'addresses' && (
               <>
                 <h2 className={styles.modalTitle}>Saved addresses</h2>
-                <p className={styles.modalLead}>Name wallets once, then pick them when you withdraw.</p>
+                <p className={styles.modalLead}>
+                  Name wallets once, then pick them when you withdraw. A new address is held for 24 hours before it can
+                  receive a withdrawal — that delay protects your balance if someone else gets into your account.
+                </p>
                 <label className={styles.field}>
                   <span>Label</span>
                   <input value={destLabel} onChange={(e) => setDestLabel(e.target.value)} placeholder="Trading wallet" />
@@ -1933,28 +1964,33 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                           <th>Network</th>
                           <th>Token</th>
                           <th>Address</th>
+                          <th>Status</th>
                           <th />
                         </tr>
                       </thead>
                       <tbody>
-                        {(profile.destinations ?? []).map((d) => (
-                          <tr key={d.id}>
-                            <td>{d.label}</td>
-                            <td>{d.chain}</td>
-                            <td>{d.token}</td>
-                            <td className={styles.mono}>{d.address}</td>
-                            <td>
-                              <button
-                                type="button"
-                                className={styles.linkButton}
-                                disabled={!!busy}
-                                onClick={() => onDeleteDestination(d.id)}
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {(profile.destinations ?? []).map((d) => {
+                          const status = destinationStatus(d.createdAt)
+                          return (
+                            <tr key={d.id}>
+                              <td>{d.label}</td>
+                              <td>{d.chain}</td>
+                              <td>{d.token}</td>
+                              <td className={styles.mono}>{d.address}</td>
+                              <td>{status.label}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className={styles.linkButton}
+                                  disabled={!!busy}
+                                  onClick={() => onDeleteDestination(d.id)}
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
