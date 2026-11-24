@@ -289,6 +289,9 @@ app.get('/api/me', requireAuth, async (req: AuthedRequest, res) => {
   try {
   const userId = req.auth!.userId
   const user = ensureUserAlphAddress(userId)
+  // An API key is a machine credential: it must not read the payout address,
+  // saved destinations or the payout history it could be used to drain.
+  const viaSession = req.auth!.via === 'session'
   res.json({
     userId,
     email: user.email ?? req.auth!.email,
@@ -307,9 +310,9 @@ app.get('/api/me', requireAuth, async (req: AuthedRequest, res) => {
     feeQuote: await quoteX402Fee(),
     minDepositUsdt: minDepositUsdt(),
     alerts: listAlerts(userId).slice(0, 30),
-    payouts: listPayouts(userId).slice(0, 30),
+    payouts: viaSession ? listPayouts(userId).slice(0, 30) : [],
     x402Payments: listX402Payments(userId).slice(0, 80),
-    destinations: listDestinations(userId),
+    destinations: viaSession ? listDestinations(userId) : [],
     deposits: listDeposits(userId)
       .slice()
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -322,7 +325,7 @@ app.get('/api/me', requireAuth, async (req: AuthedRequest, res) => {
       payoutEnabled: Boolean(user.payoutEnabled),
       payoutThresholdAtomic: user.payoutThresholdAtomic || DEFAULT_PAYOUT_THRESHOLD_ATOMIC,
       payoutChain: user.payoutChain || 'ethereum',
-      payoutAddress: user.payoutAddress || '',
+      payoutAddress: viaSession ? user.payoutAddress || '' : '',
       payoutToken: user.payoutToken || 'USDT'
     }
   })
@@ -672,7 +675,7 @@ app.post('/api/users', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
   res.json(user)
 })
 
-app.post('/api/deposits/address', requireAuth, (req: AuthedRequest, res) => {
+app.post('/api/deposits/address', requireAuth, requireSession, requireAppOrigin, (req: AuthedRequest, res) => {
   try {
     const userId = req.auth!.userId
     const chain = String(req.body.chain ?? '')
