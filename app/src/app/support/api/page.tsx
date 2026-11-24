@@ -224,15 +224,7 @@ addr = hub("POST", "/deposits/address", json_body={"chain": "bsc", "token": "USD
 fee = hub("GET", "/fees/quote?kind=withdraw&chain=bsc", expected=200)
 # { "totalUsdtAtomic": "…", "gasUsdtAtomic": "…", … }
 
-# amountUsdt must be > fee. HTTP 400 { "error": "amount_too_small_for_fees" } otherwise.
-payout = hub("POST", "/payouts", json_body={
-    "amountUsdt": 10,
-    "chain": "bsc",
-    "token": "USDT",
-    "toAddress": "0x…",
-}, api_key=api_key, expected=200)
-# { "status": "scheduled", "netAtomic": "…", "feeAtomic": "…", "txHash": null }
-# later: status "sent" + txHash, or "failed"`}</pre>
+# Withdrawals are signed-in browser only (not x-api-key). Currently paused on production.`}</pre>
 
       <h2 className={styles.sectionTitle}>1. Auth</h2>
       <pre className={styles.codeBox}>{`# Register
@@ -331,19 +323,10 @@ curl -i -H "PAYMENT-SIGNATURE: <base64>" -H "Accept: application/json" \\
 
       <h2 className={styles.sectionTitle}>6. Withdraw</h2>
       <p className={styles.sectionLead}>
-        Quote the fee, then send USDT to a 0x address. The fee is deducted from the amount; request more than the fee.
+        Withdrawals are paused until we re-enable them. When unlocked, use the signed-in account page only (not an API
+        key) and a wallet saved at least 24 hours earlier.
       </p>
-      <pre className={styles.codeBox}>{`curl -sS "https://xpay.heartbix.com/api/hub/fees/quote?kind=withdraw&chain=ethereum"
-
-curl -sS -X POST https://xpay.heartbix.com/api/hub/payouts \\
-  -H "x-api-key: ak_live_…" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "amountUsdt": 10,
-    "chain": "ethereum",
-    "token": "USDT",
-    "toAddress": "0x…"
-  }'`}</pre>
+      <pre className={styles.codeBox}>{`curl -sS "https://xpay.heartbix.com/api/hub/fees/quote?kind=withdraw&chain=ethereum"`}</pre>
       <p className={styles.sectionLead}>
         Response includes <code>status</code> (<code>scheduled</code> then <code>sent</code> or <code>failed</code>),{' '}
         <code>netAtomic</code>, <code>feeAtomic</code>, and <code>txHash</code> when sent.

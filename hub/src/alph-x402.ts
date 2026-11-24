@@ -50,9 +50,26 @@ function loadVault() {
   }
 }
 
+/**
+ * Contract view calls to the public node take 10-20s, which blows past the
+ * 20s client timeout in the x402 flow. Nonces only change when a payment
+ * settles, so a short TTL cache is safe and keeps the intent endpoint fast.
+ */
+const NONCE_TTL_MS = 15_000
+const nonceCache = new Map<string, { value: bigint; at: number }>()
+
 export async function readVaultNonce(user: string): Promise<bigint> {
+  const hit = nonceCache.get(user)
+  if (hit && Date.now() - hit.at < NONCE_TTL_MS) return hit.value
   const { vault } = loadVault()
-  return (await vault.view.getNonce({ args: { user } })).returns
+  const value = (await vault.view.getNonce({ args: { user } })).returns
+  nonceCache.set(user, { value, at: Date.now() })
+  return value
+}
+
+/** Drops the cached nonce so the next read hits the chain. */
+export function invalidateVaultNonce(user: string): void {
+  nonceCache.delete(user)
 }
 
 export async function readVaultBalance(user: string): Promise<bigint> {
@@ -84,6 +101,29 @@ export async function creditVaultFromHub(user: string, amount: bigint): Promise<
     await assertScriptOk(result.txId)
     return { txId: result.txId }
   })
+}
+
+const TX_ID_RE = /^[0-9a-f]{64}$/i
+
+export function isTxIdFormat(txId: string): boolean {
+  return TX_ID_RE.test(txId.trim())
+}
+
+/**
+ * Confirms a txId exists on the configured Alephium node and succeeded.
+ * Used to reject fabricated receipts before they are written to the ledger.
+ */
+export async function verifyOnChainTx(txId: string): Promise<{ ok: boolean; reason?: string }> {
+  if (!isTxIdFormat(txId)) return { ok: false, reason: 'invalid_txid' }
+  setAlphProvider()
+  try {
+    const status = await web3.getCurrentNodeProvider().transactions.getTransactionsStatus({ txId })
+    if (status.type === 'MemPooled') return { ok: true }
+    if (status.type === 'Confirmed') return { ok: true }
+    return { ok: false, reason: 'tx_not_confirmed' }
+  } catch {
+    return { ok: false, reason: 'tx_not_found' }
+  }
 }
 
 export async function waitVaultNonce(user: string, minNonce: bigint, maxMs = 90_000): Promise<void> {
@@ -129,6 +169,7 @@ export async function settlePaymentOnChain(params: {
       attoAlphAmount: MINIMAL_CONTRACT_DEPOSIT * 2n
     })
     await assertScriptOk(settled.txId)
+    invalidateVaultNonce(params.from)
     return { txId: settled.txId }
   })
 }

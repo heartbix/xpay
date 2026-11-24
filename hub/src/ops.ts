@@ -369,9 +369,32 @@ export async function platformSnapshot() {
   const x402Fee = await quoteX402Fee()
   const sampleWithdraw = await quoteWithdrawFee('ethereum')
 
+  // Real vs mock USDT deviation. Mock USDT is minted on Alephium for the
+  // simulation; real USDT is what the treasury actually holds on EVM chains.
+  // The gap between user liabilities and real backing is the exposure.
+  const realUsdtAtomic = chains.reduce((n, row) => {
+    for (const t of row.tokens ?? []) {
+      if (t.symbol === 'USDT') n += BigInt(Math.round(Number(t.amount) * 1e6))
+    }
+    return n
+  }, 0n)
+  const mockUsdtAtomic = alph?.musdt ? BigInt(Math.round(Number(alph.musdt) * 1e6)) : 0n
+  const deviationAtomic = liabilities - realUsdtAtomic
+  const deviationPct =
+    realUsdtAtomic > 0n ? Number((deviationAtomic * 10000n) / realUsdtAtomic) / 100 : liabilities > 0n ? 100 : 0
+
   return {
     generatedAt: new Date().toISOString(),
     network: process.env.ALEPHIUM_NETWORK ?? 'testnet',
+    usdtDeviation: {
+      realUsdtAtomic: realUsdtAtomic.toString(),
+      mockUsdtAtomic: mockUsdtAtomic.toString(),
+      userLiabilitiesAtomic: liabilities.toString(),
+      deviationAtomic: deviationAtomic.toString(),
+      deviationPct,
+      covered: deviationAtomic <= 0n,
+      note: 'real = treasury USDT on EVM chains; mock = MockUSDT on Alephium; liabilities = sum of user balances'
+    },
     watchChains: (process.env.HUB_WATCH_CHAINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     autoSweep: process.env.HUB_AUTO_SWEEP === '1',
     autoCredit: process.env.HUB_AUTO_CREDIT === '1',

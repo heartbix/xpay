@@ -10,6 +10,16 @@ async function proxy(req: NextRequest, params: { path: string[] }) {
   if (auth) headers.set('authorization', auth)
   if (apiKey) headers.set('x-api-key', apiKey)
   if (contentType) headers.set('content-type', contentType)
+  const origin = req.headers.get('origin')
+  const referer = req.headers.get('referer')
+  if (origin) headers.set('origin', origin)
+  if (referer) headers.set('referer', referer)
+
+  // Preserve the real client IP so the hub's admin allowlist can see it.
+  const forwardedFor = req.headers.get('x-forwarded-for')
+  const realIp = req.headers.get('x-real-ip')
+  if (forwardedFor) headers.set('x-forwarded-for', forwardedFor)
+  else if (realIp) headers.set('x-forwarded-for', realIp)
 
   const init: RequestInit = {
     method: req.method,

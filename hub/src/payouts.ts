@@ -10,24 +10,56 @@ import { ensureUsdtOnChain } from './route-usdt'
 import { receiptCostUsdtAtomic } from './tx-cost'
 import { toTokenUnits, treasuryUsdtAtomic } from './treasury-usdt'
 import {
+  assertPayoutDestination,
+  assertPayoutRateLimit,
+  isForbiddenEvmAddress,
+  notePayoutAttempt,
+  payoutsEnabled
+} from './payout-guard'
+import {
   DEFAULT_PAYOUT_THRESHOLD_ATOMIC,
   PayoutRecord,
   availableBalanceAtomic,
   getUser,
   saveAlert,
-  savePayout
+  savePayout,
+  spendableBalanceAtomic
 } from './store'
+import { readVaultBalance } from './alph-x402'
 
 const ERC20_ABI = ['function transfer(address to, uint256 amount) returns (bool)']
 
+/**
+ * Ledger balance capped by the vault's on-chain balance. If the vault read
+ * fails we fall back to the ledger so a node hiccup does not block withdrawals.
+ */
+async function spendableBalance(userId: string): Promise<bigint> {
+  const ledger = availableBalanceAtomic(userId)
+  const user = getUser(userId)
+  if (!user?.alphAddress) return ledger
+  try {
+    const vault = await readVaultBalance(user.alphAddress)
+    return spendableBalanceAtomic(userId, vault)
+  } catch {
+    return ledger
+  }
+}
+
 export async function maybeSchedulePayout(userId: string): Promise<PayoutRecord | undefined> {
+  if (!payoutsEnabled()) return
   const user = getUser(userId)
   if (!user?.payoutEnabled) return
   if (!user.payoutAddress || !user.payoutChain) return
   if (!isSupportedChain(user.payoutChain)) return
+  try {
+    assertPayoutDestination(userId, user.payoutChain, user.payoutAddress)
+    assertPayoutRateLimit(userId)
+  } catch {
+    return
+  }
   const token = 'USDT'
   const threshold = BigInt(user.payoutThresholdAtomic || DEFAULT_PAYOUT_THRESHOLD_ATOMIC)
-  const available = availableBalanceAtomic(userId)
+  const available = await spendableBalance(userId)
   if (available < threshold) return
 
   const quote = await quoteWithdrawFee(user.payoutChain, available.toString())
@@ -71,14 +103,19 @@ export async function requestPayout(params: {
   toAddress: string
   amountAtomic: string
 }): Promise<PayoutRecord> {
+  if (!payoutsEnabled()) throw new Error('payouts_locked')
   if (!isSupportedChain(params.chain)) throw new Error('unsupported_chain')
   if (!isTokenSymbol(params.token)) throw new Error('unsupported_token')
   if (params.token !== 'USDT') throw new Error('withdraw_usdt_only')
   const toAddress = params.toAddress.trim()
-  if (!/^0x[0-9a-fA-F]{40}$/.test(toAddress)) throw new Error('invalid_address')
+  if (!/^0x[0-9a-fA-F]{40}$/.test(toAddress) || isForbiddenEvmAddress(toAddress)) {
+    throw new Error('invalid_address')
+  }
+  assertPayoutDestination(params.userId, params.chain, toAddress)
+  assertPayoutRateLimit(params.userId)
   const amount = BigInt(params.amountAtomic || '0')
   if (amount <= 0n) throw new Error('invalid_amount')
-  const available = availableBalanceAtomic(params.userId)
+  const available = await spendableBalance(params.userId)
   if (available < amount) throw new Error('insufficient_balance')
 
   const quote = await quoteWithdrawFee(params.chain, amount.toString())
@@ -105,6 +142,7 @@ export async function requestPayout(params: {
     updatedAt: now
   }
   savePayout(row)
+  notePayoutAttempt(params.userId)
   pushOpsEvent({
     kind: 'payout',
     status: 'scheduled',
@@ -145,6 +183,12 @@ async function payoutWallet(chain: SupportedChain) {
 
 export async function executePayout(row: PayoutRecord): Promise<PayoutRecord> {
   if (row.status === 'sent') return row
+  if (!payoutsEnabled() || isForbiddenEvmAddress(row.toAddress)) {
+    row.status = 'failed'
+    row.error = payoutsEnabled() ? 'invalid_address' : 'payouts_locked'
+    row.updatedAt = new Date().toISOString()
+    return savePayout(row)
+  }
   row.status = 'sending'
   row.updatedAt = new Date().toISOString()
   savePayout(row)

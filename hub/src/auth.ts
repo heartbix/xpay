@@ -18,7 +18,12 @@ import {
 import { sendAlertEmail } from './mail'
 import { OAuthProvider } from './oauth'
 
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000
+/** Session lifetime. Override with HUB_SESSION_TTL_MS (default 1 hour). */
+function sessionTtlMs(): number {
+  const n = Number(process.env.HUB_SESSION_TTL_MS)
+  if (Number.isFinite(n) && n >= 60_000) return n
+  return 60 * 60 * 1000
+}
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export type AuthedRequest = Request & {
@@ -45,7 +50,7 @@ function normalizeEmail(email: string): string {
 
 export function issueSession(userId: string): { token: string; expiresAt: string; userId: string } {
   const token = `sess_${crypto.randomBytes(24).toString('hex')}`
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString()
+  const expiresAt = new Date(Date.now() + sessionTtlMs()).toISOString()
   saveSession({
     tokenHash: sha256Hex(token),
     userId,
@@ -145,10 +150,7 @@ export async function verifyEmail(params: { email?: string; code?: string; token
   const user = token ? findUserByVerifyTokenHash(sha256Hex(token)) : email ? findUserByEmail(email) : undefined
 
   if (!user) throw new Error('invalid_verification')
-  if (user.emailVerifiedAt) {
-    const provisioned = ensureUserAlphAddress(user.userId)
-    return { user: provisioned, session: issueSession(provisioned.userId) }
-  }
+  if (user.emailVerifiedAt) throw new Error('already_verified')
   const exp = user.emailVerifyExpiresAt ? Date.parse(user.emailVerifyExpiresAt) : 0
   if (!exp || Date.now() > exp) throw new Error('verification_expired')
 
@@ -253,9 +255,32 @@ export function isPlatformAdminEmail(email?: string): boolean {
   return Boolean(email && list.includes(email.trim().toLowerCase()))
 }
 
+/**
+ * Optional admin IP allowlist. Set HUB_ADMIN_IPS to a comma-separated list of
+ * client IPs (e.g. "79.116.140.135"). Empty/unset disables the check.
+ */
+function adminIpAllowlist(): string[] {
+  return (process.env.HUB_ADMIN_IPS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function clientIp(req: Request): string {
+  const forwarded = String(req.headers['x-forwarded-for'] ?? '')
+    .split(',')[0]
+    .trim()
+  if (forwarded) return forwarded
+  return String(req.socket?.remoteAddress ?? req.ip ?? '').replace(/^::ffff:/, '')
+}
+
 export function requireAdmin(req: AuthedRequest, res: Response, next: NextFunction) {
   if (!req.auth) return res.status(401).json({ error: 'unauthorized' })
   if (!isPlatformAdminEmail(req.auth.email)) return res.status(403).json({ error: 'forbidden' })
+  const allow = adminIpAllowlist()
+  if (allow.length > 0 && !allow.includes(clientIp(req))) {
+    return res.status(403).json({ error: 'admin_ip_forbidden' })
+  }
   return next()
 }
 

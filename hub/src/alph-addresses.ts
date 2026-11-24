@@ -1,4 +1,5 @@
 import { PrivateKeyWallet, deriveHDWalletPrivateKeyForGroup } from '@alephium/web3-wallet'
+import { readMnemonic } from './addresses'
 
 /** Public test phrase — never used to assign live user addresses. */
 const DEMO_MNEMONIC = 'test test test test test test test test test test test junk'
@@ -6,13 +7,13 @@ export const ALPH_RECEIVE_GROUP = 0
 const DEMO_SCAN = 32
 
 function alphMnemonic(): string {
-  const m = process.env.HUB_ALPH_MNEMONIC?.trim() || process.env.HUB_MNEMONIC?.trim()
+  const m = readMnemonic('HUB_ALPH_MNEMONIC') || readMnemonic('HUB_MNEMONIC')
   if (!m) throw new Error('HUB_MNEMONIC missing')
   return m
 }
 
 export function isDemoAlphSeed(): boolean {
-  return !process.env.HUB_ALPH_MNEMONIC?.trim() && !process.env.HUB_MNEMONIC?.trim()
+  return !readMnemonic('HUB_ALPH_MNEMONIC') && !readMnemonic('HUB_MNEMONIC')
 }
 
 function walletFrom(mnemonic: string, fromIndex: number): { wallet: PrivateKeyWallet; derivationIndex: number } {

@@ -14,7 +14,12 @@ export interface RailConfig {
 }
 
 function getNetwork(): NetworkId {
-  return (process.env.NEXT_PUBLIC_NETWORK ?? 'devnet') as NetworkId
+  // Server-side code must follow the hub's network; client bundles only see the
+  // inlined NEXT_PUBLIC_* value. Default to testnet so a missing var can never
+  // silently point the app at devnet contracts that don't exist on the node.
+  return (process.env.ALEPHIUM_NETWORK ??
+    process.env.NEXT_PUBLIC_NETWORK ??
+    'testnet') as NetworkId
 }
 
 function placeholderConfig(network: NetworkId): RailConfig {

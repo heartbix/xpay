@@ -59,6 +59,7 @@ type MeResponse = {
   settings?: HubSettings
   minDepositUsdt?: number
   isAdmin?: boolean
+  payoutsEnabled?: boolean
 }
 
 async function hubApi<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<T> {
@@ -87,8 +88,16 @@ function authErrorMessage(code: string): string {
   return code
 }
 
-function formatMusdt(atomic: string): string {
-  const n = BigInt(atomic || '0')
+/** Hub rows are strings, but legacy/probe data can hold junk like "[object Object]". */
+function toAtomic(value: unknown): bigint {
+  if (typeof value === 'bigint') return value
+  if (typeof value === 'number') return Number.isFinite(value) ? BigInt(Math.trunc(value)) : 0n
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return BigInt(value.trim())
+  return 0n
+}
+
+function formatMusdt(atomic: unknown): string {
+  const n = toAtomic(atomic)
   const whole = n / 1_000_000n
   const frac = (n % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
   return frac ? `${whole}.${frac}` : whole.toString()
@@ -96,7 +105,7 @@ function formatMusdt(atomic: string): string {
 
 function sumAtomic(rows: HubDeposit[]): string {
   let n = 0n
-  for (const row of rows) n += BigInt(row.netAtomic || row.amountAtomic || '0')
+  for (const row of rows) n += toAtomic(row.netAtomic ?? row.amountAtomic)
   return formatMusdt(n.toString())
 }
 
@@ -104,7 +113,7 @@ function feeHint(quote?: HubFeeQuote, kind: 'x402' | 'withdraw' = 'x402'): strin
   if (!quote) return ''
   const amount = formatMusdt(quote.totalUsdtAtomic)
   if (kind === 'withdraw') return `Withdraw fee ${amount} USDT`
-  if (BigInt(quote.totalUsdtAtomic || '0') === 0n) return ''
+  if (toAtomic(quote.totalUsdtAtomic) === 0n) return ''
   return `Current X402 transaction fee ${amount} USDT`
 }
 
@@ -178,7 +187,7 @@ async function cheapestWithdrawChain(
           `/fees/quote?kind=withdraw&chain=${encodeURIComponent(id)}${q}`,
           token ? { token } : {}
         )
-        return { id, fee: BigInt(quote.totalUsdtAtomic || '0') }
+        return { id, fee: toAtomic(quote.totalUsdtAtomic) }
       } catch {
         return { id, fee: 1n << 60n }
       }
@@ -191,9 +200,9 @@ async function cheapestWithdrawChain(
 function withdrawSplit(amount: string, quote?: HubFeeQuote) {
   const n = Number(amount || '0')
   const gross = BigInt(Number.isFinite(n) && n > 0 ? Math.round(n * 1_000_000) : 0)
-  const network = BigInt(quote?.gasUsdtAtomic || '0') + BigInt(quote?.sweepUsdtAtomic || '0')
-  const vault = BigInt(quote?.platformUsdtAtomic || '0')
-  const fee = BigInt(quote?.totalUsdtAtomic || '0')
+  const network = toAtomic(quote?.gasUsdtAtomic) + toAtomic(quote?.sweepUsdtAtomic)
+  const vault = toAtomic(quote?.platformUsdtAtomic)
+  const fee = toAtomic(quote?.totalUsdtAtomic)
   const net = gross > fee ? gross - fee : 0n
   return { gross, network, vault, fee, net }
 }
@@ -657,6 +666,15 @@ export function AccountApp() {
     if (code === 'treasury_usdt_short') {
       return 'Treasury is still moving USDT to that network. Try again shortly.'
     }
+    if (code === 'payouts_locked') return 'Withdrawals are paused.'
+    if (code === 'destination_not_saved') return 'Save this wallet first, then wait 24 hours before withdrawing to it.'
+    if (code === 'destination_cooling_down') {
+      return 'New wallets cannot receive a withdraw for 24 hours after you save them.'
+    }
+    if (code === 'payout_rate_limited') return 'Wait 15 minutes between withdraws.'
+    if (code === 'forbidden_origin' || code === 'session_required') {
+      return 'Withdraw from the XPay account page while signed in.'
+    }
     return code
   }
 
@@ -686,29 +704,20 @@ export function AccountApp() {
   }
 
   const onWithdraw = async () => {
+    if (me && me.payoutsEnabled === false) {
+      setError('Withdrawals are paused.')
+      return
+    }
     const dest = me?.destinations?.find((d) => d.id === withdrawDestId)
-    const toAddress = dest?.address || withdrawAddress
-    if (saveOnWithdraw && !dest && destLabel.trim() && toAddress && token) {
-      try {
-        await hubApi('/destinations', {
-          method: 'POST',
-          token,
-          body: JSON.stringify({
-            label: destLabel.trim(),
-            chain: withdrawChain,
-            token: 'USDT',
-            address: toAddress
-          })
-        })
-      } catch {
-        /* still withdraw */
-      }
+    if (!dest?.address) {
+      setError('Save this wallet first, then wait 24 hours before withdrawing to it.')
+      return
     }
     await onPayout({
       amount: withdrawAmount,
       chain: withdrawChain,
       token: 'USDT',
-      toAddress
+      toAddress: dest.address
     })
   }
 
@@ -791,6 +800,7 @@ export function AccountApp() {
   }
 
   const signedIn = !!token && !!me
+  const profile = me
   const deposits = me?.deposits ?? []
   const credited = deposits.filter((d) => d.status === 'credited')
   const pending = deposits.filter((d) => d.status === 'detected' || d.status === 'confirmed')
@@ -808,8 +818,8 @@ export function AccountApp() {
 
   const sideCounts: Partial<Record<DashPage, number>> = {
     history: me?.x402Payments?.length ?? 0,
-    api: me?.apiKeys.length ?? 0,
-    x402: me?.merchants.length ?? 0
+    api: me?.apiKeys?.length ?? 0,
+    x402: me?.merchants?.length ?? 0
   }
   const selectedChain = chains.find((c) => c.id === chain)
   const tokenOptions = (
@@ -822,7 +832,7 @@ export function AccountApp() {
     <div className={styles.shell}>
       <SiteHeader
         active="account"
-        account={signedIn ? { name: me.name, email: me.email } : null}
+        account={signedIn && me ? { name: me.name, email: me.email } : null}
         onLogOff={signedIn ? onLogout : undefined}
       />
       <div className={styles.container}>
@@ -957,11 +967,22 @@ export function AccountApp() {
           </p>
           ) : null}
         </section>
+      ) : !profile ? (
+        <section className={styles.rail}>
+          <p className={styles.kicker}>Customer account</p>
+          <h1 className={styles.title}>Loading your account…</h1>
+          <p className={styles.lead}>Fetching your profile from the hub.</p>
+          <div className={styles.actions}>
+            <button type="button" onClick={onLogout}>
+              Log out
+            </button>
+          </div>
+        </section>
       ) : (
         <div className={styles.dash}>
           <nav className={styles.side} aria-label="Dashboard">
             <p className={styles.sideLabel}>Menu</p>
-            {(me.isAdmin
+            {(profile.isAdmin
               ? [...DASH_ITEMS, { id: 'platform' as const, label: 'Platform' }]
               : DASH_ITEMS
             ).map((item) => (
@@ -988,7 +1009,7 @@ export function AccountApp() {
                   Fund, x402, and withdraw use USDT. Guides:{' '}
                   <a href="/support/x402">X402 payments</a> · <a href="/support/api">API</a>.
                 </p>
-                <X402FeeLine atomic={me.feeQuote?.totalUsdtAtomic} />
+                <X402FeeLine atomic={profile.feeQuote?.totalUsdtAtomic} />
                 <div className={styles.actions}>
                   <button
                     type="button"
@@ -1010,7 +1031,7 @@ export function AccountApp() {
                   credited yet.
                 </p>
                 <OverviewChart
-                  payments={me.x402Payments || []}
+                  payments={profile.x402Payments || []}
                   range={chartRange}
                   onRange={setChartRange}
                   now={chartNow}
@@ -1019,12 +1040,12 @@ export function AccountApp() {
                   <div>
                     <span>Balance</span>
                     <strong className={styles.statValue}>
-                      {formatMusdt(me.balanceAtomic || '0')} USDT
+                      {formatMusdt(profile.balanceAtomic || '0')} USDT
                     </strong>
                   </div>
                   <div>
                     <span>X402 transactions</span>
-                    <strong className={styles.statValue}>{(me.x402Payments || []).length}</strong>
+                    <strong className={styles.statValue}>{(profile.x402Payments || []).length}</strong>
                   </div>
                   <div>
                     <span>Pending deposits</span>
@@ -1044,11 +1065,11 @@ export function AccountApp() {
                   </div>
                   <div>
                     <span>API keys</span>
-                    <strong className={styles.statValue}>{me.apiKeys.length}</strong>
+                    <strong className={styles.statValue}>{profile.apiKeys.length}</strong>
                   </div>
                   <div>
                     <span>X402 endpoints</span>
-                    <strong className={styles.statValue}>{me.merchants.length}</strong>
+                    <strong className={styles.statValue}>{profile.merchants.length}</strong>
                   </div>
                 </div>
               </div>
@@ -1109,11 +1130,11 @@ export function AccountApp() {
                 <div className={styles.meta}>
                   <div>
                     <span>Name</span>
-                    <strong>{me.name || '—'}</strong>
+                    <strong>{profile.name || '—'}</strong>
                   </div>
                   <div>
                     <span>Email</span>
-                    <strong>{me.email || '—'}</strong>
+                    <strong>{profile.email || '—'}</strong>
                   </div>
                 </div>
                 </section>
@@ -1121,7 +1142,7 @@ export function AccountApp() {
                 <section className={styles.accountBlock}>
                 <h2 className={styles.sectionTitle}>Low balance alert</h2>
                 <p className={styles.sectionLead}>
-                  Email {me.email || 'your login email'} when available balance drops below the threshold.
+                  Email {profile.email || 'your login email'} when available balance drops below the threshold.
                 </p>
                 <label className={styles.field}>
                   <span>Email alert</span>
@@ -1139,7 +1160,7 @@ export function AccountApp() {
                     {busy === 'settings' ? 'Saving…' : 'Save alert'}
                   </button>
                 </div>
-                {(me.alerts ?? []).filter((a) => a.kind === 'low_balance').length === 0 ? (
+                {(profile.alerts ?? []).filter((a) => a.kind === 'low_balance').length === 0 ? (
                   <p className={styles.empty}>No low-balance alerts yet.</p>
                 ) : (
                   <div className={styles.tableWrap}>
@@ -1152,7 +1173,7 @@ export function AccountApp() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(me.alerts ?? [])
+                        {(profile.alerts ?? [])
                           .filter((a) => a.kind === 'low_balance')
                           .map((a) => (
                             <tr key={a.id}>
@@ -1262,7 +1283,7 @@ export function AccountApp() {
                     Addresses
                   </button>
                 </div>
-                {(me.payouts ?? []).length > 0 && (
+                {(profile.payouts ?? []).length > 0 && (
                   <>
                     <h2 className={styles.sectionTitle}>Withdraw history</h2>
                     <div className={styles.tableWrap}>
@@ -1279,7 +1300,7 @@ export function AccountApp() {
                           </tr>
                         </thead>
                         <tbody>
-                          {(me.payouts ?? []).map((p) => (
+                          {(profile.payouts ?? []).map((p) => (
                             <tr key={p.id}>
                               <td>{new Date(p.createdAt).toLocaleString()}</td>
                               <td>
@@ -1368,7 +1389,7 @@ export function AccountApp() {
                   Payments you sent or received on X402 endpoints. USDT credits in XPay; the Txid is a MockUSDT
                   transfer on Alephium testnet. Deposits and withdrawals stay in Fund.
                 </p>
-                {feeHint(me.feeQuote) ? <p className={styles.feeLine}>{feeHint(me.feeQuote)}</p> : null}
+                {feeHint(profile.feeQuote) ? <p className={styles.feeLine}>{feeHint(profile.feeQuote)}</p> : null}
                 <label className={styles.field}>
                   <span>Search</span>
                   <input
@@ -1380,7 +1401,7 @@ export function AccountApp() {
                 </label>
                 {x402History.length === 0 ? (
                   <p className={styles.empty}>
-                    {(me.x402Payments ?? []).length === 0
+                    {(profile.x402Payments ?? []).length === 0
                       ? 'No X402 transactions yet.'
                       : 'No payments match that search.'}
                   </p>
@@ -1451,7 +1472,7 @@ export function AccountApp() {
                     <p className={styles.mono}>{newSecret}</p>
                   </div>
                 )}
-                {me.apiKeys.length > 0 && (
+                {profile.apiKeys.length > 0 && (
                   <div className={styles.tableWrap}>
                     <table className={styles.table}>
                       <thead>
@@ -1463,7 +1484,7 @@ export function AccountApp() {
                         </tr>
                       </thead>
                       <tbody>
-                        {me.apiKeys.map((k) => (
+                        {profile.apiKeys.map((k) => (
                           <tr key={k.id}>
                             <td>{k.name}</td>
                             <td className={styles.mono}>{k.keyPrefix}…</td>
@@ -1499,7 +1520,7 @@ export function AccountApp() {
                   Create a paid endpoint. The URL includes your group-0 Alephium account so the same slug (for example
                   price1) can exist for every seller. Share that URL. A buyer logs in and pays it from Pay.
                 </p>
-                <X402FeeLine atomic={me.feeQuote?.totalUsdtAtomic} />
+                <X402FeeLine atomic={profile.feeQuote?.totalUsdtAtomic} />
                 <label className={styles.field}>
                   <span>Slug</span>
                   <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="price1" />
@@ -1535,15 +1556,15 @@ export function AccountApp() {
                   request, your server sets the price with your API key (API page).
                 </p>
                 <pre className={styles.codeBox}>{`# Fixed price (catalog)
-curl -i ${me.merchants[0] ? merchantPayUrl(me.merchants[0]) : `https://xpay.heartbix.com/api/pay/${me.alphAddress || '<alph-address>'}/price1`}
+curl -i ${profile.merchants[0] ? merchantPayUrl(profile.merchants[0]) : `https://xpay.heartbix.com/api/pay/${profile.alphAddress || '<alph-address>'}/price1`}
 
 # Per-request price, e.g. one AI call at 0.05 USDT (seller API key)
 curl -i -H "x-api-key: YOUR_API_KEY" \\
-  "${me.merchants[0] ? merchantPayUrl(me.merchants[0]) : `https://xpay.heartbix.com/api/pay/${me.alphAddress || '<alph-address>'}/price1`}?price=0.05"
+  "${profile.merchants[0] ? merchantPayUrl(profile.merchants[0]) : `https://xpay.heartbix.com/api/pay/${profile.alphAddress || '<alph-address>'}/price1`}?price=0.05"
 
 # After 402: retry the same URL with header
 # PAYMENT-SIGNATURE: <base64 payment from the 402 body>`}</pre>
-                {me.merchants.length > 0 && (
+                {profile.merchants.length > 0 && (
                   <div className={styles.tableWrap}>
                     <table className={styles.table}>
                       <thead>
@@ -1554,7 +1575,7 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                         </tr>
                       </thead>
                       <tbody>
-                        {me.merchants.map((m) => (
+                        {profile.merchants.map((m) => (
                           <tr key={m.id}>
                             <td className={styles.mono}>{merchantPayUrl(m)}</td>
                             <td>{formatMusdt(m.priceAtomic)} USDT</td>
@@ -1591,7 +1612,7 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
         </div>
       )}
 
-      {signedIn && fundModal && me ? (
+      {signedIn && fundModal && profile ? (
         <div
           className={styles.modalOverlay}
           onClick={() => setFundModal(null)}
@@ -1690,9 +1711,9 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
               })()}
             {fundModal === 'withdraw' &&
               (() => {
-                const destinations = me.destinations ?? []
+                const destinations = profile.destinations ?? []
                 const dest = destinations.find((d) => d.id === withdrawDestId)
-                const max = formatMusdt(me.balanceAtomic || '0')
+                const max = formatMusdt(profile.balanceAtomic || '0')
                 const split = withdrawSplit(withdrawAmount, withdrawQuote)
                 const chainLabel = (chains.find((c) => c.id === withdrawChain)?.name || withdrawChain)
                 const toAddress = dest?.address || withdrawAddress
@@ -1705,8 +1726,9 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                       Withdraw USDT on {chainLabel}
                     </h2>
                     <p className={styles.modalLead}>
-                      You withdraw USDT. Fee is 2× dest gas; a small route extra applies only if treasury must hop onto
-                      this chain.
+                      {profile.payoutsEnabled === false
+                        ? 'Withdrawals are paused. You can still save a wallet address.'
+                        : 'Withdraw USDT to a wallet you already saved. New addresses must wait 24 hours. Fee is 2× dest gas; a small route extra applies only if treasury must hop onto this chain.'}
                     </p>
                     <div className={styles.modalRow}>
                       <label className={styles.field}>
@@ -1746,7 +1768,7 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                         </button>
                         <span className={styles.minHint}>
                           Min 1 USDT · fee {formatMusdt(split.fee.toString())} USDT
-                          {BigInt(withdrawQuote?.hopUsdtAtomic || '0') > 0n ? ' (includes route)' : ''}
+                          {toAtomic(withdrawQuote?.hopUsdtAtomic) > 0n ? ' (includes route)' : ''}
                         </span>
                       </div>
                     </label>
@@ -1832,7 +1854,13 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                       <button
                         type="button"
                         className={styles.hlPrimary}
-                        disabled={!!busy || !(Number(withdrawAmount) > 0) || tooSmall || !toAddress}
+                        disabled={
+                          profile.payoutsEnabled === false ||
+                          !!busy ||
+                          !(Number(withdrawAmount) > 0) ||
+                          tooSmall ||
+                          !dest
+                        }
                         onClick={() => {
                           if (!toAddress) {
                             setError('Enter a recipient address or pick a saved wallet.')
@@ -1842,11 +1870,13 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                           onWithdraw()
                         }}
                       >
-                        {busy === 'withdraw'
-                          ? 'Sending…'
-                          : toAddress
-                            ? 'Withdraw'
-                            : 'Enter a recipient'}
+                        {profile.payoutsEnabled === false
+                          ? 'Withdrawals paused'
+                          : busy === 'withdraw'
+                            ? 'Sending…'
+                            : dest
+                              ? 'Withdraw'
+                              : 'Pick a saved wallet'}
                       </button>
                     </div>
                   </>
@@ -1892,7 +1922,7 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                     {busy === 'dest' ? 'Saving…' : 'Save address'}
                   </button>
                 </div>
-                {(me.destinations ?? []).length === 0 ? (
+                {(profile.destinations ?? []).length === 0 ? (
                   <p className={styles.empty}>No saved addresses yet.</p>
                 ) : (
                   <div className={styles.tableWrap}>
@@ -1907,7 +1937,7 @@ curl -i -H "x-api-key: YOUR_API_KEY" \\
                         </tr>
                       </thead>
                       <tbody>
-                        {(me.destinations ?? []).map((d) => (
+                        {(profile.destinations ?? []).map((d) => (
                           <tr key={d.id}>
                             <td>{d.label}</td>
                             <td>{d.chain}</td>

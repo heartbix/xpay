@@ -211,10 +211,25 @@ function emptyDb(): DbShape {
   }
 }
 
+/**
+ * hub.json is ~12 MB and readDb() is called on nearly every request. Parsing it
+ * each time saturates the event loop, so the parsed document is cached and only
+ * re-read when the file's mtime/size changes (or after a local write).
+ */
+let dbCache: { db: DbShape; mtimeMs: number; size: number } | undefined
+
 function readDb(): DbShape {
-  if (!fs.existsSync(DB_PATH)) return emptyDb()
+  let stat: fs.Stats
+  try {
+    stat = fs.statSync(DB_PATH)
+  } catch {
+    return emptyDb()
+  }
+  if (dbCache && dbCache.mtimeMs === stat.mtimeMs && dbCache.size === stat.size) {
+    return dbCache.db
+  }
   const raw = JSON.parse(fs.readFileSync(DB_PATH, 'utf8')) as Partial<DbShape>
-  return {
+  const db: DbShape = {
     ...emptyDb(),
     ...raw,
     nextAlphIndex: raw.nextAlphIndex ?? 0,
@@ -228,13 +243,23 @@ function readDb(): DbShape {
     x402Nonces: raw.x402Nonces ?? {},
     x402Queue: raw.x402Queue ?? []
   }
+  dbCache = { db, mtimeMs: stat.mtimeMs, size: stat.size }
+  return db
 }
 
 const LOCK_DIR = `${DB_PATH}.lock`
+const LOCK_STALE_MS = 30_000
+const LOCK_WAIT_MS = 10_000
 
+/**
+ * Directory-based mutex. The previous version spun 2000 times with no delay,
+ * which blocked the event loop and starved the HTTP server. This version backs
+ * off between attempts and breaks locks left behind by a crashed process.
+ */
 function withLock<T>(fn: () => T): T {
   fs.mkdirSync(DATA_DIR, { recursive: true })
-  for (let i = 0; i < 2000; i++) {
+  const deadline = Date.now() + LOCK_WAIT_MS
+  while (Date.now() < deadline) {
     try {
       fs.mkdirSync(LOCK_DIR)
       try {
@@ -248,6 +273,17 @@ function withLock<T>(fn: () => T): T {
       }
     } catch (e: any) {
       if (e?.code !== 'EEXIST') throw e
+      // A lock older than LOCK_STALE_MS means the owner died mid-write.
+      try {
+        const age = Date.now() - fs.statSync(LOCK_DIR).mtimeMs
+        if (age > LOCK_STALE_MS) {
+          fs.rmdirSync(LOCK_DIR)
+          continue
+        }
+      } catch {
+        /* lock vanished between checks */
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
     }
   }
   throw new Error('db_lock_timeout')
@@ -256,6 +292,13 @@ function withLock<T>(fn: () => T): T {
 function writeDb(db: DbShape) {
   fs.mkdirSync(DATA_DIR, { recursive: true })
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2))
+  // Keep the cache in sync so the next readDb() does not re-parse 12 MB.
+  try {
+    const stat = fs.statSync(DB_PATH)
+    dbCache = { db, mtimeMs: stat.mtimeMs, size: stat.size }
+  } catch {
+    dbCache = undefined
+  }
 }
 
 function updateDb<T>(fn: (db: DbShape) => T): T {
@@ -482,6 +525,32 @@ export function revokeSessions(userId: string) {
   writeDb(db)
 }
 
+export function revokeAllSessions(): number {
+  const db = readDb()
+  const n = db.sessions.length
+  db.sessions = []
+  writeDb(db)
+  return n
+}
+
+export function revokeApiKeysForEmailUsers(emails: string[]): number {
+  const want = new Set(emails.map((e) => e.trim().toLowerCase()))
+  const db = readDb()
+  const ids = new Set(
+    db.users.filter((u) => u.email && want.has(u.email.trim().toLowerCase())).map((u) => u.userId)
+  )
+  const now = new Date().toISOString()
+  let n = 0
+  for (const key of db.apiKeys) {
+    if (key.revokedAt) continue
+    if (!ids.has(key.userId)) continue
+    key.revokedAt = now
+    n += 1
+  }
+  writeDb(db)
+  return n
+}
+
 export function listApiKeys(userId: string): ApiKeyRecord[] {
   return readDb().apiKeys.filter((k) => k.userId === userId && !k.revokedAt)
 }
@@ -602,9 +671,15 @@ export function creditedNetAtomic(userId: string): bigint {
   return n
 }
 
+/**
+ * Net x402 movement for a user. Rows whose on-chain settle failed must not
+ * count: the seller was never paid, so crediting them would let them withdraw
+ * real USDT for a payment that never happened.
+ */
 export function x402NetAtomic(userId: string): bigint {
   let n = 0n
   for (const p of listX402Payments(userId)) {
+    if (p.chainStatus === 'failed') continue
     const amount = BigInt(p.totalAtomic || p.priceAtomic || '0')
     if ((p.direction || 'received') === 'sent') n -= amount
     else n += amount
@@ -621,9 +696,27 @@ export function reservedPayoutAtomic(userId: string): bigint {
   return n
 }
 
-export function availableBalanceAtomic(userId: string): bigint {
+/**
+ * Ledger balance from hub.json. This is a mirror of PaymentVault.balances[user];
+ * use availableBalanceAtomic() for anything that moves money.
+ */
+export function ledgerBalanceAtomic(userId: string): bigint {
   const v = creditedNetAtomic(userId) + x402NetAtomic(userId) - reservedPayoutAtomic(userId)
   return v > 0n ? v : 0n
+}
+
+export function availableBalanceAtomic(userId: string): bigint {
+  return ledgerBalanceAtomic(userId)
+}
+
+/**
+ * Balance capped by the vault's on-chain balance. The vault is authoritative:
+ * if hub.json claims more than the vault holds (drift, failed settle, manual
+ * edit), the smaller number wins so a withdrawal can never exceed the reserve.
+ */
+export function spendableBalanceAtomic(userId: string, vaultBalance: bigint): bigint {
+  const ledger = ledgerBalanceAtomic(userId)
+  return ledger < vaultBalance ? ledger : vaultBalance
 }
 
 export function listAlerts(userId: string): AlertRecord[] {
@@ -664,6 +757,12 @@ export function listX402Payments(userId?: string): X402PaymentRecord[] {
   return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
+export function findX402PaymentByTx(txId: string): X402PaymentRecord | undefined {
+  const id = txId.trim()
+  if (!id) return undefined
+  return readDb().x402Payments.find((p) => p.txId === id)
+}
+
 export function saveX402Payment(row: X402PaymentRecord): X402PaymentRecord {
   const db = readDb()
   const dup = db.x402Payments.some((p) => p.userId === row.userId && p.txId === row.txId && p.direction === row.direction)
@@ -682,6 +781,7 @@ function netFromDb(db: DbShape, userId: string): bigint {
   let x402 = 0n
   for (const p of db.x402Payments) {
     if (p.userId !== userId) continue
+    if (p.chainStatus === 'failed') continue
     const amount = BigInt(p.totalAtomic || p.priceAtomic || '0')
     if ((p.direction || 'received') === 'sent') x402 -= amount
     else x402 += amount

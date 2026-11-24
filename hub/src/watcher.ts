@@ -1,7 +1,7 @@
 import { JsonRpcProvider, formatUnits, id, Interface, zeroPadValue } from 'ethers'
 import { v4 as uuidv4 } from 'uuid'
 import { CHAINS, SupportedChain, TokenConfig, isSupportedChain } from './chains'
-import { creditVaultOnAlephium } from './credit'
+import { creditVaultOnAlephium, retryUncreditedDeposits } from './credit'
 import { isBelowMinDeposit } from './fees'
 import { attachFeeQuote } from './ledger'
 import { pushOpsEvent } from './ops-events'
@@ -183,6 +183,11 @@ async function main() {
       } catch (e: any) {
         console.error(`[watcher] ${chain} error:`, e?.message ?? e)
       }
+    }
+    try {
+      await retryUncreditedDeposits()
+    } catch (e: any) {
+      console.error('[watcher] uncredited retry:', e?.message ?? e)
     }
     try {
       await retryUnsweptDeposits()

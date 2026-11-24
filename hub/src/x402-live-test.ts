@@ -4,6 +4,7 @@ import { PaymentVault } from 'my-contracts'
 import { v4 as uuidv4 } from 'uuid'
 import { pushOpsEvent } from './ops-events'
 import { creditVaultFromHub, readVaultBalance, withHubSigner } from './alph-x402'
+import { readMnemonic } from './addresses'
 import { quoteX402Fee } from './fees'
 import {
   availableBalanceAtomic,
@@ -31,7 +32,7 @@ let liveRunning = false
 let volumeRunning = false
 
 function alphMnemonic(): string {
-  const m = process.env.HUB_ALPH_MNEMONIC?.trim() || process.env.HUB_MNEMONIC?.trim()
+  const m = readMnemonic('HUB_ALPH_MNEMONIC') || readMnemonic('HUB_MNEMONIC')
   if (!m) throw new Error('HUB_MNEMONIC missing')
   return m
 }
@@ -146,7 +147,7 @@ export async function runBourmattPaysAdmin(flowId: string): Promise<{ payUrl: st
   if (!hubKey) throw new Error('HUB_ALPH_PRIVATE_KEY missing')
   const hubWallet = new PrivateKeyWallet({ privateKey: hubKey })
 
-  const hasKey = (await vault.view.hasPublicKey({ args: { user: buyer.alphAddress } })).returns
+  const hasKey = await readHasPublicKey(vault, buyer.alphAddress)
   const buyerAlph = await alphBalance(buyer.alphAddress)
   if (!hasKey && buyerAlph < MINIMAL_CONTRACT_DEPOSIT + DUST_AMOUNT * 20n) {
     note(flowId, 'fund_alph', 'Sponsoring buyer ALPH', `${BUYER_EMAIL} needs ALPH to register the vault key`)
@@ -174,8 +175,7 @@ export async function runBourmattPaysAdmin(flowId: string): Promise<{ payUrl: st
     note(flowId, 'register', 'Vault key registered', 'Buyer can sign x402 payments', { txId: registered.txId })
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 2000))
-      const ok = (await vault.view.hasPublicKey({ args: { user: buyer.alphAddress } })).returns
-      if (ok) break
+      if (await readHasPublicKey(vault, buyer.alphAddress)) break
     }
   }
 
@@ -518,6 +518,11 @@ export async function runVolumeFill(opts: number | VolumeFillOpts = 100): Promis
   return { adminToBourmatt, bourmattToAdmin }
 }
 
+/**
+ * Races a promise against a timeout. The losing promise is not cancelled, so
+ * callers must keep the timeout generous enough that the underlying request
+ * finishes; otherwise abandoned requests pile up and saturate the event loop.
+ */
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let t: ReturnType<typeof setTimeout> | undefined
   try {
@@ -529,6 +534,13 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
     ])
   } finally {
     if (t) clearTimeout(t)
+  }
+}
+
+/** Runs tasks one at a time so a slow node is never hit with parallel load. */
+async function runSequential<T>(items: T[], fn: (item: T, index: number) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i++) {
+    await fn(items[i], i)
   }
 }
 
@@ -580,9 +592,7 @@ async function ensureVaultKey(
   address: string,
   wallet: PrivateKeyWallet
 ): Promise<void> {
-  const hasKey = (
-    await withTimeout(vault.view.hasPublicKey({ args: { user: address } }), 20000, 'hasPublicKey')
-  ).returns
+  const hasKey = await readHasPublicKey(vault, address)
   if (hasKey) return
   const hubKey = process.env.HUB_ALPH_PRIVATE_KEY?.trim()
   if (!hubKey) throw new Error('HUB_ALPH_PRIVATE_KEY missing')
@@ -615,10 +625,30 @@ async function ensureVaultKey(
   note(flowId, 'register', 'Vault key registered', `${email} can sign x402 payments`, { txId: registered.txId })
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 2000))
-    const ok = (await vault.view.hasPublicKey({ args: { user: address } })).returns
-    if (ok) return
+    if (await readHasPublicKey(vault, address)) return
   }
   throw new Error(`buyer_vault_key_missing ${email}`)
+}
+
+/**
+ * The public node intermittently takes >20s or drops the connection, so a
+ * single view call is retried a few times before giving up.
+ */
+async function readHasPublicKey(
+  vault: ReturnType<typeof PaymentVault.at>,
+  address: string
+): Promise<boolean> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return (await withTimeout(vault.view.hasPublicKey({ args: { user: address } }), 45_000, 'hasPublicKey'))
+        .returns
+    } catch (e) {
+      lastError = e
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('hasPublicKey_failed')
 }
 
 async function fetchJson(url: string, init: RequestInit = {}, ms = 20000): Promise<{ status: number; body: any }> {
@@ -688,22 +718,24 @@ export async function runCrowdFill(opts: {
     await ensureVaultMusdt(flowId, email, user.alphAddress, budget)
     console.log(`[x402-crowd] account ${email} alph=${user.alphAddress}`)
   }
-  const settled = await Promise.allSettled(
-    emails.map((email, idx) =>
-      runDirectedBurst({
-        flowId,
-        buyerEmail: email,
-        sellerEmail: SELLER_EMAIL,
-        slug: `crowd-${idx + 1}`,
-        count: paysEach
-      })
-    )
-  )
+  // Sequential: the public node is slow and the VPS is small, so parallel
+  // bursts saturate the event loop and starve the HTTP server.
   const bursts: DirectedBurstResult[] = []
-  for (const row of settled) {
-    if (row.status === 'fulfilled') bursts.push(row.value)
-    else console.error(`[x402-crowd] burst failed ${row.reason?.message ?? row.reason}`)
-  }
+  await runSequential(emails, async (email, idx) => {
+    try {
+      bursts.push(
+        await runDirectedBurst({
+          flowId,
+          buyerEmail: email,
+          sellerEmail: SELLER_EMAIL,
+          slug: `crowd-${idx + 1}`,
+          count: paysEach
+        })
+      )
+    } catch (e: any) {
+      console.error(`[x402-crowd] burst failed ${e?.message ?? e}`)
+    }
+  })
   if (bursts.length === 0) throw new Error('crowd_all_bursts_failed')
   return { customers: emails, bursts }
 }

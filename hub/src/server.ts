@@ -24,7 +24,10 @@ import {
   redirectToAccount
 } from './oauth'
 import { getToken, isSupportedChain, isTokenSymbol, publicChains } from './chains'
-import { readVaultNonce } from './alph-x402'
+import { invalidateVaultNonce, readVaultNonce, verifyOnChainTx } from './alph-x402'
+import { ingestTx } from './watcher'
+import { payoutsEnabled, requireAppOrigin, requireSession } from './payout-guard'
+import { rateLimit } from './rate-limit'
 import { startPayoutQueue } from './payout-queue'
 import { startX402ChainQueue } from './x402-chain-queue'
 import { creditVaultOnAlephium } from './credit'
@@ -42,6 +45,7 @@ import {
   findDepositByTx,
   findMerchantBySlug,
   findMerchantByPayToAndSlug,
+  findX402PaymentByTx,
   findUserByAlphAddress,
   findMerchantByUserAndSlug,
   payResourcePath,
@@ -170,7 +174,10 @@ app.get('/api/chains', (_req, res) => {
   res.json({ chains: publicChains() })
 })
 
-app.post('/api/auth/register', async (req, res) => {
+app.post(
+  '/api/auth/register',
+  rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 'register_rate_limited' }),
+  async (req, res) => {
   try {
     const result = await registerAccount(
       String(req.body.email ?? ''),
@@ -187,9 +194,22 @@ app.post('/api/auth/register', async (req, res) => {
     const status = code === 'email_taken' || code === 'email_pending_verification' ? 409 : 400
     res.status(status).json({ error: code })
   }
-})
+  }
+)
 
-app.post('/api/auth/verify', async (req, res) => {
+/**
+ * Verification codes are 6 digits, so an unthrottled endpoint is brute-forceable.
+ * Limit per IP and per email: 10 attempts per 15 minutes.
+ */
+app.post(
+  '/api/auth/verify',
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    key: (req) => String(req.body?.email ?? '').trim().toLowerCase(),
+    message: 'verify_rate_limited'
+  }),
+  async (req, res) => {
   try {
     const { user, session } = await verifyEmail({
       email: String(req.body.email ?? ''),
@@ -204,9 +224,11 @@ app.post('/api/auth/verify', async (req, res) => {
     })
   } catch (e: any) {
     const code = e?.message ?? 'verify_failed'
-    res.status(400).json({ error: code })
+    const status = code === 'already_verified' ? 409 : 400
+    res.status(status).json({ error: code })
   }
-})
+  }
+)
 
 app.post('/api/auth/resend-verify', async (req, res) => {
   try {
@@ -219,7 +241,15 @@ app.post('/api/auth/resend-verify', async (req, res) => {
   }
 })
 
-app.post('/api/auth/login', (req, res) => {
+app.post(
+  '/api/auth/login',
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    key: (req) => String(req.body?.email ?? '').trim().toLowerCase(),
+    message: 'login_rate_limited'
+  }),
+  (req, res) => {
   try {
     const { user, session } = loginAccount(String(req.body.email ?? ''), String(req.body.password ?? ''))
     res.json({
@@ -232,7 +262,8 @@ app.post('/api/auth/login', (req, res) => {
     const code = e?.message ?? 'login_failed'
     res.status(code === 'email_not_verified' ? 403 : 401).json({ error: code })
   }
-})
+  }
+)
 
 app.post('/api/auth/logout', requireAuth, (req: AuthedRequest, res) => {
   if (req.auth?.userId) revokeSessions(req.auth.userId)
@@ -249,7 +280,6 @@ app.get('/api/me', requireAuth, async (req: AuthedRequest, res) => {
     name: user.name,
     alphAddress: user.alphAddress,
     via: req.auth!.via,
-    deposits: listDeposits(userId),
     apiKeys: listApiKeys(userId).map((k) => ({
       id: k.id,
       name: k.name,
@@ -261,11 +291,16 @@ app.get('/api/me', requireAuth, async (req: AuthedRequest, res) => {
     balanceAtomic: availableBalanceAtomic(userId).toString(),
     feeQuote: await quoteX402Fee(),
     minDepositUsdt: minDepositUsdt(),
-    alerts: listAlerts(userId),
-    payouts: listPayouts(userId),
-    x402Payments: listX402Payments(userId),
+    alerts: listAlerts(userId).slice(0, 30),
+    payouts: listPayouts(userId).slice(0, 30),
+    x402Payments: listX402Payments(userId).slice(0, 80),
     destinations: listDestinations(userId),
+    deposits: listDeposits(userId)
+      .slice()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 40),
     isAdmin: isPlatformAdminEmail(user.email ?? req.auth!.email),
+    payoutsEnabled: payoutsEnabled(),
     settings: {
       lowBalanceAlert: user.lowBalanceAlert !== false,
       lowBalanceThresholdAtomic: user.lowBalanceThresholdAtomic || DEFAULT_LOW_BALANCE_ATOMIC,
@@ -289,15 +324,7 @@ app.get('/api/admin/platform', requireAuth, requireAdmin, async (_req, res) => {
   }
 })
 
-function isLoopback(req: express.Request): boolean {
-  const ip = String(req.socket.remoteAddress || req.ip || '')
-  return ip === '127.0.0.1' || ip === '::1' || ip.endsWith('127.0.0.1')
-}
-
-app.post('/api/admin/simulate', (req: AuthedRequest, res, next) => {
-  if (isLoopback(req)) return next()
-  requireAuth(req, res, () => requireAdmin(req, res, next))
-}, (req, res) => {
+app.post('/api/admin/simulate', requireAuth, requireAdmin, (req, res) => {
   const kind = String(req.body?.kind ?? 'deposit')
   if (kind === 'x402') {
     const sim = startSimulatedX402()
@@ -400,7 +427,7 @@ app.get('/api/fees/quote', async (req, res) => {
   }
 })
 
-app.post('/api/me/settings', requireAuth, (req: AuthedRequest, res) => {
+app.post('/api/me/settings', requireAuth, requireSession, requireAppOrigin, (req: AuthedRequest, res) => {
   const userId = req.auth!.userId
   const thresholdFromUsdt = (value: unknown, fallback: string) => {
     const n = Number(value)
@@ -412,7 +439,7 @@ app.post('/api/me/settings', requireAuth, (req: AuthedRequest, res) => {
   const user = updateUser(userId, {
     lowBalanceAlert: req.body.lowBalanceAlert !== false,
     lowBalanceThresholdAtomic: thresholdFromUsdt(req.body.lowBalanceThresholdUsdt, DEFAULT_LOW_BALANCE_ATOMIC),
-    payoutEnabled: Boolean(req.body.payoutEnabled),
+    payoutEnabled: payoutsEnabled() && Boolean(req.body.payoutEnabled),
     payoutThresholdAtomic: thresholdFromUsdt(req.body.payoutThresholdUsdt, DEFAULT_PAYOUT_THRESHOLD_ATOMIC),
     payoutChain: isSupportedChain(payoutChain) ? payoutChain : undefined,
     payoutAddress: String(req.body.payoutAddress ?? '').trim(),
@@ -512,6 +539,7 @@ app.post('/api/x402/settle', async (req, res) => {
       detail: `${req.body.slug ?? ''} · ${expectedTotal} atomic`,
       txId: result.txId
     })
+    invalidateVaultNonce(payer)
     void afterBalanceChange(result.sellerUserId)
     void afterBalanceChange(result.payerUserId)
     res.json({ ok: true, txId: result.txId })
@@ -534,7 +562,11 @@ app.post('/api/x402/settle', async (req, res) => {
   }
 })
 
-app.post('/api/x402/record', async (req, res) => {
+/**
+ * Records an already-settled x402 payment. Requires an authenticated caller and a
+ * txId that exists on the Alephium node, so fabricated receipts cannot mint balance.
+ */
+app.post('/api/x402/record', requireAuth, async (req: AuthedRequest, res) => {
   try {
     const slug = String(req.body.slug ?? '')
     const payTo = String(req.body.payTo ?? '').trim()
@@ -543,10 +575,21 @@ app.post('/api/x402/record', async (req, res) => {
       ? findMerchantByPayToAndSlug(payTo, slug)
       : findMerchantBySlug(slug)
     if (!merchant) return res.status(404).json({ error: 'merchant_not_found' })
+
+    const isAdmin = isPlatformAdminEmail(req.auth!.email)
+    const ownsMerchant = merchant.userId === req.auth!.userId
+    if (!isAdmin && !ownsMerchant) return res.status(403).json({ error: 'forbidden' })
+
+    const txId = String(req.body.txId ?? '').trim()
+    if (!txId) return res.status(400).json({ error: 'txid_required' })
+    if (findX402PaymentByTx(txId)) return res.status(409).json({ error: 'duplicate_txid' })
+
+    const onChain = await verifyOnChainTx(txId)
+    if (!onChain.ok) return res.status(400).json({ error: onChain.reason ?? 'tx_not_found' })
+
     const quote = await quoteTxFee()
     const priceAtomic = String(req.body.priceAtomic ?? merchant.priceAtomic)
     const totalAtomic = String(req.body.totalAtomic ?? '')
-    const txId = String(req.body.txId ?? '')
     const createdAt = new Date().toISOString()
     const shared = {
       slug,
@@ -598,7 +641,8 @@ app.post('/api/me/alph-address', requireAuth, (req: AuthedRequest, res) => {
   res.json({ userId: user.userId, email: user.email, alphAddress: user.alphAddress })
 })
 
-app.post('/api/users', (req, res) => {
+/** Admin-only: creates a bare user row. No client calls this; kept for ops tooling. */
+app.post('/api/users', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
   const userId = String(req.body.userId ?? uuidv4())
   const alphAddress = req.body.alphAddress ? String(req.body.alphAddress) : undefined
   const user = upsertUser(userId, alphAddress)
@@ -639,7 +683,7 @@ app.get('/api/destinations', requireAuth, (req: AuthedRequest, res) => {
   res.json({ destinations: listDestinations(req.auth!.userId) })
 })
 
-app.post('/api/destinations', requireAuth, (req: AuthedRequest, res) => {
+app.post('/api/destinations', requireAuth, requireSession, requireAppOrigin, (req: AuthedRequest, res) => {
   const label = String(req.body.label ?? '').trim()
   const chain = String(req.body.chain ?? '')
   const token = String(req.body.token ?? 'USDT').toUpperCase()
@@ -664,13 +708,19 @@ app.post('/api/destinations', requireAuth, (req: AuthedRequest, res) => {
   res.status(existingId ? 200 : 201).json(row)
 })
 
-app.delete('/api/destinations/:id', requireAuth, (req: AuthedRequest, res) => {
+app.delete('/api/destinations/:id', requireAuth, requireSession, requireAppOrigin, (req: AuthedRequest, res) => {
   const ok = deleteDestination(req.auth!.userId, String(req.params.id))
   if (!ok) return res.status(404).json({ error: 'not_found' })
   res.json({ ok: true })
 })
 
-app.post('/api/payouts', requireAuth, async (req: AuthedRequest, res) => {
+app.post(
+  '/api/payouts',
+  rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: 'payout_rate_limited' }),
+  requireAuth,
+  requireSession,
+  requireAppOrigin,
+  async (req: AuthedRequest, res) => {
   try {
     const amountUsdt = Number(req.body.amountUsdt ?? req.body.amount)
     if (!Number.isFinite(amountUsdt) || amountUsdt <= 0) {
@@ -696,57 +746,52 @@ app.post('/api/payouts', requireAuth, async (req: AuthedRequest, res) => {
       'amount_too_small_for_fees',
       'below_min_withdraw',
       'withdraw_usdt_only',
-      'treasury_usdt_short'
+      'treasury_usdt_short',
+      'destination_not_saved',
+      'destination_cooling_down',
+      'payout_rate_limited'
     ]
+    if (msg === 'payouts_locked' || msg === 'session_required' || msg === 'forbidden_origin') {
+      return res.status(403).json({ error: msg })
+    }
     res.status(known.includes(msg) ? 400 : 500).json({ error: msg })
   }
-})
+  }
+)
 
 /** Manual confirm for demos / ops when watcher is off */
-app.post('/api/deposits/confirm', requireAuth, async (req: AuthedRequest, res) => {
+/**
+ * Re-ingests a deposit from its on-chain receipt. The amount is read from the
+ * ERC-20 Transfer log, never from the request body, so a caller cannot mint balance.
+ */
+app.post('/api/deposits/confirm', requireAuth, requireSession, requireAdmin, requireAppOrigin, async (req: AuthedRequest, res) => {
   try {
-    const userId = req.auth!.userId
     const chain = String(req.body.chain ?? '')
-    const txHash = String(req.body.txHash ?? '')
-    const amountAtomic = String(req.body.amountAtomic ?? '')
-    const amountUsdt = String(req.body.amountUsdt ?? amountAtomic)
-    if (!isSupportedChain(chain) || !txHash || !amountAtomic) {
+    const txHash = String(req.body.txHash ?? '').trim()
+    if (!isSupportedChain(chain) || !txHash) {
       return res.status(400).json({ error: 'invalid_body' })
+    }
+    if (!/^0x[0-9a-f]{64}$/i.test(txHash)) {
+      return res.status(400).json({ error: 'invalid_txhash' })
     }
     if (findDepositByTx(chain, txHash)) {
       return res.status(409).json({ error: 'already_exists' })
     }
 
-    let deposit = saveDeposit({
-      id: uuidv4(),
-      userId,
-      chain,
-      txHash,
-      amountAtomic,
-      amountUsdt,
-      status: 'confirmed',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    })
-    deposit = await attachFeeQuote(deposit)
-    if (isBelowMinDeposit(deposit.amountAtomic)) {
-      deposit.status = 'failed'
-      deposit.error = 'below_minimum_deposit'
-      deposit.updatedAt = new Date().toISOString()
-      return res.status(400).json(saveDeposit(deposit))
+    await ingestTx(chain, txHash)
+    const deposit = findDepositByTx(chain, txHash)
+    if (!deposit) {
+      return res.status(400).json({ error: 'no_matching_transfer' })
     }
-
-    if (req.body.credit === true || process.env.HUB_AUTO_CREDIT === '1') {
-      deposit = await creditVaultOnAlephium(deposit)
-    }
-
     res.json(deposit)
   } catch (e: any) {
-    res.status(500).json({ error: e?.message ?? String(e) })
+    const code = e?.message ?? String(e)
+    const status = code === 'tx_not_found' ? 400 : 500
+    res.status(status).json({ error: code })
   }
 })
 
-app.post('/api/deposits/:id/credit', requireAuth, async (req: AuthedRequest, res) => {
+app.post('/api/deposits/:id/credit', requireAuth, requireSession, requireAdmin, requireAppOrigin, async (req: AuthedRequest, res) => {
   const deposits = listDeposits(req.auth!.userId)
   const deposit = deposits.find((d) => d.id === req.params.id)
   if (!deposit) return res.status(404).json({ error: 'not_found' })
@@ -766,7 +811,7 @@ app.get('/api/keys', requireAuth, (req: AuthedRequest, res) => {
   })
 })
 
-app.post('/api/keys', requireAuth, (req: AuthedRequest, res) => {
+app.post('/api/keys', requireAuth, requireSession, requireAppOrigin, (req: AuthedRequest, res) => {
   const name = String(req.body.name ?? 'default').slice(0, 64)
   const { secret, prefix, hash } = createApiKeySecret()
   const row = createApiKey({
@@ -786,7 +831,7 @@ app.post('/api/keys', requireAuth, (req: AuthedRequest, res) => {
   })
 })
 
-app.delete('/api/keys/:id', requireAuth, (req: AuthedRequest, res) => {
+app.delete('/api/keys/:id', requireAuth, requireSession, requireAppOrigin, (req: AuthedRequest, res) => {
   const revoked = revokeApiKey(req.auth!.userId, String(req.params.id))
   if (!revoked) return res.status(404).json({ error: 'not_found' })
   res.json({ ok: true })
@@ -879,6 +924,7 @@ const httpServer = app.listen(PORT, '127.0.0.1', () => {
   startPayoutQueue()
   startTrafficLoop()
   console.log(`Deposit Hub listening on http://127.0.0.1:${PORT}/dashboard`)
+  if (!payoutsEnabled()) console.warn('PAYOUTS LOCKED (set HUB_PAYOUTS_ENABLED=1 to unlock)')
   if (isDemoSeed()) {
     console.warn('WARNING: using demo mnemonic. Do not send real USDT.')
   }

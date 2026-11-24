@@ -3,7 +3,7 @@ import { PrivateKeyWallet } from '@alephium/web3-wallet'
 import { isBelowMinDeposit } from './fees'
 import { attachFeeQuote, afterBalanceChange } from './ledger'
 import { pushOpsEvent } from './ops-events'
-import { DepositRecord, getUser, saveDeposit } from './store'
+import { DepositRecord, getUser, listDeposits, saveDeposit } from './store'
 
 /**
  * Credits PaymentVault on Alephium after a source-chain deposit is confirmed.
@@ -39,7 +39,7 @@ export async function creditVaultOnAlephium(deposit: DepositRecord): Promise<Dep
         }
       }
     }
-    const network = (process.env.ALEPHIUM_NETWORK ?? 'devnet') as 'devnet' | 'testnet' | 'mainnet'
+    const network = (process.env.ALEPHIUM_NETWORK ?? 'testnet') as 'devnet' | 'testnet' | 'mainnet'
     const deployments = loadDeployments(network)
     const vault = deployments.contracts.PaymentVault.contractInstance
     const usdtId = deployments.contracts.MockUSDT.contractInstance.contractId
@@ -85,17 +85,42 @@ export async function creditVaultOnAlephium(deposit: DepositRecord): Promise<Dep
     await afterBalanceChange(deposit.userId)
     return saved
   } catch (e: any) {
-    deposit.status = 'failed'
-    deposit.error = e?.message ?? String(e)
+    const code = e?.message ?? String(e)
+    // The source-chain USDT has already been swept to treasury, so a transient
+    // failure (hub wallet out of MUSDT, node hiccup) must stay retryable.
+    // Only permanent errors mark the deposit failed.
+    const permanent =
+      code === 'below_minimum_deposit' ||
+      code === 'amount_too_small_for_fees' ||
+      code === 'user_missing_alph_address' ||
+      /Invalid address|decoding failure/i.test(code)
+    deposit.status = permanent ? 'failed' : 'confirmed'
+    deposit.error = code
     deposit.updatedAt = new Date().toISOString()
     pushOpsEvent({
       kind: 'deposit',
-      status: 'failed',
-      title: 'Credit failed',
-      detail: deposit.error || 'credit_failed',
+      status: permanent ? 'failed' : 'detected',
+      title: permanent ? 'Credit failed' : 'Credit retry pending',
+      detail: code || 'credit_failed',
       txId: deposit.txHash,
       chain: deposit.chain
     })
     return saveDeposit(deposit)
+  }
+}
+
+/**
+ * Retries deposits that were confirmed on the source chain but never credited
+ * to the vault. Runs from the watcher loop so a transient credit failure
+ * (e.g. hub wallet temporarily out of MUSDT) self-heals.
+ */
+export async function retryUncreditedDeposits(): Promise<void> {
+  if (process.env.HUB_AUTO_CREDIT !== '1') return
+  const pending = listDeposits().filter((d) => d.status === 'confirmed' && !d.creditTxId)
+  for (const deposit of pending) {
+    const age = Date.now() - Date.parse(deposit.updatedAt || deposit.createdAt)
+    if (!Number.isFinite(age) || age < 60_000) continue
+    console.log(`[credit] retrying ${deposit.chain} ${deposit.txHash} (${deposit.error ?? 'pending'})`)
+    await creditVaultOnAlephium(deposit)
   }
 }

@@ -1,3 +1,4 @@
+import { payoutsEnabled } from './payout-guard'
 import { executePayout } from './payouts'
 import { peekScheduledPayout, savePayout } from './store'
 
@@ -18,6 +19,14 @@ async function loop() {
     const row = peekScheduledPayout()
     if (!row) {
       await sleep(2000)
+      continue
+    }
+    if (!payoutsEnabled()) {
+      row.status = 'failed'
+      row.error = 'payouts_locked'
+      row.updatedAt = new Date().toISOString()
+      savePayout(row)
+      attempts.delete(row.id)
       continue
     }
     const n = (attempts.get(row.id) ?? 0) + 1

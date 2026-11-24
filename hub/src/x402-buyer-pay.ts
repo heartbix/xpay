@@ -2,12 +2,13 @@ import { web3 } from '@alephium/web3'
 import { PrivateKeyWallet, deriveHDWalletPrivateKeyForGroup } from '@alephium/web3-wallet'
 import { PaymentVault } from 'my-contracts'
 import { readVaultNonce } from './alph-x402'
+import { readMnemonic } from './addresses'
 import { availableBalanceAtomic, ensureUserAlphAddress, getUser, getX402Intent } from './store'
 
 const PAY_HOST = process.env.XPAY_INTERNAL_URL ?? process.env.XPAY_PUBLIC_URL ?? 'http://127.0.0.1:3000'
 
 function alphMnemonic(): string {
-  const m = process.env.HUB_ALPH_MNEMONIC?.trim() || process.env.HUB_MNEMONIC?.trim()
+  const m = readMnemonic('HUB_ALPH_MNEMONIC') || readMnemonic('HUB_MNEMONIC')
   if (!m) throw new Error('HUB_MNEMONIC missing')
   return m
 }

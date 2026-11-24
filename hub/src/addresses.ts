@@ -7,9 +7,20 @@ export const EVM_DEPOSIT_PATH = (index: number) => `m/44'/60'/0'/0/${index}`
 /** Change-account path so the treasury is never a user deposit address. */
 export const EVM_TREASURY_PATH = "m/44'/60'/0'/1/0"
 
+/**
+ * Reads a mnemonic from the environment, stripping surrounding quotes.
+ * `.env` files commonly wrap values in quotes (`HUB_MNEMONIC="word word ..."`),
+ * and a literal quote in the phrase silently derives different addresses.
+ */
+export function readMnemonic(name: 'HUB_MNEMONIC' | 'HUB_ALPH_MNEMONIC'): string | undefined {
+  const raw = process.env[name]?.trim()
+  if (!raw) return undefined
+  const unquoted = raw.replace(/^(['"])(.*)\1$/s, '$2').trim()
+  return unquoted || undefined
+}
+
 export function hubMnemonic(): string | undefined {
-  const m = process.env.HUB_MNEMONIC?.trim()
-  return m || undefined
+  return readMnemonic('HUB_MNEMONIC')
 }
 
 export function deriveEvmWallet(index: number): HDNodeWallet {
@@ -32,7 +43,7 @@ export function treasuryEvmAddress(): string {
 
 /** EVM deposit address for a derivation index (shared across ETH/BSC/Polygon/Arbitrum). */
 export function deriveEvmDepositAddress(index: number): string {
-  const mnemonic = process.env.HUB_MNEMONIC?.trim()
+  const mnemonic = hubMnemonic()
   if (mnemonic) {
     return HDNodeWallet.fromPhrase(mnemonic, undefined, EVM_DEPOSIT_PATH(index)).address
   }
@@ -54,7 +65,7 @@ export function deriveDepositAddress(chain: SupportedChain, index: number): stri
 }
 
 export function isDemoSeed(): boolean {
-  return !process.env.HUB_MNEMONIC && !process.env.HUB_PRIVATE_KEY
+  return !hubMnemonic() && !process.env.HUB_PRIVATE_KEY
 }
 
 export function demoEvmWallet(index: number): HDNodeWallet {
