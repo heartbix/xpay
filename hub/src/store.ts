@@ -128,6 +128,11 @@ export type X402PaymentRecord = {
   chainAt?: string
   chainStatus?: 'pending' | 'settled' | 'failed'
   chainError?: string
+  /**
+   * Historical row kept for public stats only. It is excluded from every
+   * balance calculation, so restoring old history cannot mint balance.
+   */
+  archived?: boolean
 }
 
 export type Session = {
@@ -681,6 +686,7 @@ export function creditedNetAtomic(userId: string): bigint {
 export function x402NetAtomic(userId: string): bigint {
   let n = 0n
   for (const p of listX402Payments(userId)) {
+    if (p.archived) continue
     if (p.chainStatus === 'failed') continue
     const amount = BigInt(p.totalAtomic || p.priceAtomic || '0')
     if ((p.direction || 'received') === 'sent') n -= amount
@@ -788,6 +794,7 @@ function netFromDb(db: DbShape, userId: string): bigint {
   let x402 = 0n
   for (const p of db.x402Payments) {
     if (p.userId !== userId) continue
+    if (p.archived) continue
     if (p.chainStatus === 'failed') continue
     const amount = BigInt(p.totalAtomic || p.priceAtomic || '0')
     if ((p.direction || 'received') === 'sent') x402 -= amount
