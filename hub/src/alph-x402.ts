@@ -126,6 +126,41 @@ export async function verifyOnChainTx(txId: string): Promise<{ ok: boolean; reas
   }
 }
 
+type TxOutput = { address?: string; attoAlphAmount?: string; tokens?: { id: string; amount: string }[] }
+
+/**
+ * A txId existing on-chain proves nothing about who was paid. This walks the
+ * tx outputs and requires a real transfer of `minAmount` of `tokenId` to
+ * `payTo`, so a receipt cannot be replayed against an unrelated merchant.
+ */
+export async function verifyOnChainPayment(params: {
+  txId: string
+  payTo: string
+  tokenId: string
+  minAmount: bigint
+}): Promise<{ ok: boolean; reason?: string }> {
+  const base = await verifyOnChainTx(params.txId)
+  if (!base.ok) return base
+  setAlphProvider()
+  const node = web3.getCurrentNodeProvider()
+  let details: { outputs?: TxOutput[]; unsigned?: { outputs?: TxOutput[] } }
+  try {
+    details = (await node.transactions.getTransactionsDetailsTxid(params.txId)) as typeof details
+  } catch {
+    return { ok: false, reason: 'tx_not_found' }
+  }
+  const outputs = details.outputs ?? details.unsigned?.outputs ?? []
+  const target = params.payTo.trim()
+  const paid = outputs
+    .filter((o) => (o.address ?? '').trim() === target)
+    .reduce((sum, o) => {
+      const hit = (o.tokens ?? []).find((t) => t.id === params.tokenId)
+      return hit ? sum + BigInt(hit.amount) : sum
+    }, 0n)
+  if (paid < params.minAmount) return { ok: false, reason: 'payment_mismatch' }
+  return { ok: true }
+}
+
 export async function waitVaultNonce(user: string, minNonce: bigint, maxMs = 90_000): Promise<void> {
   const t0 = Date.now()
   while (Date.now() - t0 < maxMs) {

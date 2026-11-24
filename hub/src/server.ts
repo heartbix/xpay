@@ -24,7 +24,7 @@ import {
   redirectToAccount
 } from './oauth'
 import { getToken, isSupportedChain, isTokenSymbol, publicChains } from './chains'
-import { invalidateVaultNonce, readVaultNonce, verifyOnChainTx } from './alph-x402'
+import { invalidateVaultNonce, readVaultNonce, verifyOnChainPayment } from './alph-x402'
 import { ingestTx } from './watcher'
 import { payoutsEnabled, requireAppOrigin, requireSession } from './payout-guard'
 import { rateLimit } from './rate-limit'
@@ -78,6 +78,21 @@ import {
 
 const app = express()
 const PORT = Number(process.env.HUB_PORT ?? 43142)
+
+/** Contract id of the Alephium USDT ledger token, resolved once per process. */
+let cachedUsdtId: string | undefined
+function mockUsdtContractId(): string {
+  if (cachedUsdtId) return cachedUsdtId
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { loadDeployments } = require('my-contracts/deployments') as {
+    loadDeployments: (network: 'devnet' | 'testnet' | 'mainnet') => {
+      contracts: { MockUSDT: { contractInstance: { contractId: string } } }
+    }
+  }
+  const network = (process.env.ALEPHIUM_NETWORK ?? 'testnet') as 'devnet' | 'testnet' | 'mainnet'
+  cachedUsdtId = loadDeployments(network).contracts.MockUSDT.contractInstance.contractId
+  return cachedUsdtId
+}
 
 app.use(cors())
 app.use(express.json())
@@ -566,7 +581,7 @@ app.post('/api/x402/settle', async (req, res) => {
  * Records an already-settled x402 payment. Requires an authenticated caller and a
  * txId that exists on the Alephium node, so fabricated receipts cannot mint balance.
  */
-app.post('/api/x402/record', requireAuth, async (req: AuthedRequest, res) => {
+app.post('/api/x402/record', requireAuth, requireSession, requireAppOrigin, async (req: AuthedRequest, res) => {
   try {
     const slug = String(req.body.slug ?? '')
     const payTo = String(req.body.payTo ?? '').trim()
@@ -584,11 +599,19 @@ app.post('/api/x402/record', requireAuth, async (req: AuthedRequest, res) => {
     if (!txId) return res.status(400).json({ error: 'txid_required' })
     if (findX402PaymentByTx(txId)) return res.status(409).json({ error: 'duplicate_txid' })
 
-    const onChain = await verifyOnChainTx(txId)
+    const priceAtomic = String(req.body.priceAtomic ?? merchant.priceAtomic)
+    if (!/^\d+$/.test(priceAtomic) || BigInt(priceAtomic) <= 0n) {
+      return res.status(400).json({ error: 'invalid_price' })
+    }
+    const onChain = await verifyOnChainPayment({
+      txId,
+      payTo: merchant.payTo,
+      tokenId: mockUsdtContractId(),
+      minAmount: BigInt(priceAtomic)
+    })
     if (!onChain.ok) return res.status(400).json({ error: onChain.reason ?? 'tx_not_found' })
 
     const quote = await quoteTxFee()
-    const priceAtomic = String(req.body.priceAtomic ?? merchant.priceAtomic)
     const totalAtomic = String(req.body.totalAtomic ?? '')
     const createdAt = new Date().toISOString()
     const shared = {
@@ -633,7 +656,7 @@ app.post('/api/x402/record', requireAuth, async (req: AuthedRequest, res) => {
   }
 })
 
-app.post('/api/me/alph-address', requireAuth, (req: AuthedRequest, res) => {
+app.post('/api/me/alph-address', requireAuth, requireSession, requireAppOrigin, (req: AuthedRequest, res) => {
   const alphAddress = String(req.body.alphAddress ?? '').trim()
   if (!alphAddress) return res.status(400).json({ error: 'alph_address_required' })
   const user = updateUser(req.auth!.userId, { alphAddress })
@@ -843,7 +866,7 @@ app.get('/api/merchants', requireAuth, (req: AuthedRequest, res) => {
   })
 })
 
-app.post('/api/merchants', requireAuth, (req: AuthedRequest, res) => {
+app.post('/api/merchants', requireAuth, requireSession, requireAppOrigin, (req: AuthedRequest, res) => {
   const userId = req.auth!.userId
   const slugRaw = String(req.body.slug ?? '')
     .toLowerCase()
