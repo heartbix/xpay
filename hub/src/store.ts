@@ -57,6 +57,8 @@ export type HubUser = {
   payoutChain?: SupportedChain
   payoutAddress?: string
   payoutToken?: TokenSymbol
+  /** Seeded demo balance: can transact but never withdraw. */
+  testMode?: boolean
   emailVerifiedAt?: string
   emailVerifyCodeHash?: string
   emailVerifyTokenHash?: string
@@ -707,6 +709,11 @@ export function ledgerBalanceAtomic(userId: string): bigint {
 
 export function availableBalanceAtomic(userId: string): bigint {
   return ledgerBalanceAtomic(userId)
+}
+
+/** True when the account holds seeded demo balance that must never be paid out. */
+export function isTestAccount(userId: string): boolean {
+  return getUser(userId)?.testMode === true
 }
 
 /**

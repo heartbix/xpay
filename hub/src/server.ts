@@ -342,6 +342,15 @@ app.get('/api/admin/platform', requireAuth, requireAdmin, async (_req, res) => {
   }
 })
 
+/** Admin-only: flag an account as holding seeded demo balance (never withdrawable). */
+app.post('/api/admin/users/:id/test-mode', requireAuth, requireAdmin, (req: AuthedRequest, res) => {
+  const userId = String(req.params.id)
+  const enabled = req.body?.enabled !== false
+  const user = updateUser(userId, { testMode: enabled })
+  if (!user) return res.status(404).json({ error: 'not_found' })
+  res.json({ userId: user.userId, email: user.email, testMode: user.testMode === true })
+})
+
 app.post('/api/admin/simulate', requireAuth, requireAdmin, (req, res) => {
   const kind = String(req.body?.kind ?? 'deposit')
   if (kind === 'x402') {
@@ -775,9 +784,15 @@ app.post(
       'treasury_usdt_short',
       'destination_not_saved',
       'destination_cooling_down',
-      'payout_rate_limited'
+      'payout_rate_limited',
+      'test_account_no_payout'
     ]
-    if (msg === 'payouts_locked' || msg === 'session_required' || msg === 'forbidden_origin') {
+    if (
+      msg === 'payouts_locked' ||
+      msg === 'session_required' ||
+      msg === 'forbidden_origin' ||
+      msg === 'test_account_no_payout'
+    ) {
       return res.status(403).json({ error: msg })
     }
     res.status(known.includes(msg) ? 400 : 500).json({ error: msg })

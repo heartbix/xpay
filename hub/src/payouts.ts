@@ -21,6 +21,7 @@ import {
   PayoutRecord,
   availableBalanceAtomic,
   getUser,
+  isTestAccount,
   saveAlert,
   savePayout,
   spendableBalanceAtomic
@@ -47,6 +48,7 @@ async function spendableBalance(userId: string): Promise<bigint> {
 
 export async function maybeSchedulePayout(userId: string): Promise<PayoutRecord | undefined> {
   if (!payoutsEnabled()) return
+  if (isTestAccount(userId)) return
   const user = getUser(userId)
   if (!user?.payoutEnabled) return
   if (!user.payoutAddress || !user.payoutChain) return
@@ -104,6 +106,7 @@ export async function requestPayout(params: {
   amountAtomic: string
 }): Promise<PayoutRecord> {
   if (!payoutsEnabled()) throw new Error('payouts_locked')
+  if (isTestAccount(params.userId)) throw new Error('test_account_no_payout')
   if (!isSupportedChain(params.chain)) throw new Error('unsupported_chain')
   if (!isTokenSymbol(params.token)) throw new Error('unsupported_token')
   if (params.token !== 'USDT') throw new Error('withdraw_usdt_only')
