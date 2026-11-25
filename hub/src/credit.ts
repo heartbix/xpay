@@ -2,8 +2,74 @@ import { DUST_AMOUNT, MINIMAL_CONTRACT_DEPOSIT, web3 } from '@alephium/web3'
 import { PrivateKeyWallet } from '@alephium/web3-wallet'
 import { isBelowMinDeposit } from './fees'
 import { attachFeeQuote, afterBalanceChange } from './ledger'
+import { sendAlertEmail } from './mail'
 import { pushOpsEvent } from './ops-events'
 import { DepositRecord, getUser, listDeposits, saveDeposit } from './store'
+
+function formatUsdt(atomic: string | undefined): string {
+  const n = BigInt(atomic || '0')
+  const whole = n / 1_000_000n
+  const frac = (n % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+  return frac ? `${whole}.${frac}` : whole.toString()
+}
+
+function explorerUrl(chain: string, txHash: string): string {
+  const base: Record<string, string> = {
+    ethereum: 'https://etherscan.io/tx/',
+    bsc: 'https://bscscan.com/tx/',
+    polygon: 'https://polygonscan.com/tx/',
+    arbitrum: 'https://arbiscan.io/tx/',
+    base: 'https://basescan.org/tx/'
+  }
+  return `${base[chain] ?? ''}${txHash}`
+}
+
+/**
+ * Tells the depositor and the operator that a deposit reached the ledger.
+ * Fire-and-forget: a mail failure must never roll back a credit.
+ */
+function notifyDepositCredited(deposit: DepositRecord, email: string | undefined): void {
+  const amount = formatUsdt(deposit.netAtomic || deposit.amountAtomic)
+  const token = deposit.token || 'USDT'
+  const link = explorerUrl(deposit.chain, deposit.txHash)
+  const adminTo = process.env.DEPOSIT_ALERT_TO?.trim() || process.env.SMTP_USER?.trim()
+
+  if (email) {
+    const text = [
+      `Your deposit is credited.`,
+      ``,
+      `Amount : ${amount} ${token}`,
+      `Network: ${deposit.chain}`,
+      `Tx     : ${deposit.txHash}`,
+      link ? `Explorer: ${link}` : '',
+      ``,
+      `The balance is available now for x402 payments or a withdrawal.`,
+      ``,
+      `— XPay`
+    ]
+      .filter((line) => line !== '')
+      .join('\n')
+    void sendAlertEmail(email, `Deposit credited: ${amount} ${token}`, text).catch(() => undefined)
+  }
+
+  if (adminTo) {
+    const text = [
+      `A deposit was credited.`,
+      ``,
+      `Account: ${email || deposit.userId}`,
+      `Amount : ${amount} ${token}`,
+      `Network: ${deposit.chain}`,
+      `Tx     : ${deposit.txHash}`,
+      deposit.creditTxId ? `Credit : ${deposit.creditTxId}` : '',
+      link ? `Explorer: ${link}` : '',
+      ``,
+      `— XPay hub`
+    ]
+      .filter((line) => line !== '')
+      .join('\n')
+    void sendAlertEmail(adminTo, `[XPay] Deposit credited: ${amount} ${token}`, text).catch(() => undefined)
+  }
+}
 
 /**
  * Credits PaymentVault on Alephium after a source-chain deposit is confirmed.
@@ -83,6 +149,7 @@ export async function creditVaultOnAlephium(deposit: DepositRecord): Promise<Dep
       chain: deposit.chain
     })
     await afterBalanceChange(deposit.userId)
+    notifyDepositCredited(saved, user.email)
     return saved
   } catch (e: any) {
     const code = e?.message ?? String(e)
