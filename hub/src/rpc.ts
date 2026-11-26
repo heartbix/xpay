@@ -6,7 +6,11 @@ const cache = new Map<string, JsonRpcProvider>()
 export function rpcUrls(chain: SupportedChain): string[] {
   const cfg = CHAINS[chain]
   const env = process.env[cfg.rpcEnv]?.trim()
-  const list = [env, cfg.defaultRpc, ...(cfg.rpcFallbacks ?? [])].filter(
+  // Optional second paid provider, tried before the public endpoints so a
+  // primary quota exhaustion does not fall straight to rate-limited RPCs.
+  const fallbackEnvKey = cfg.rpcEnv.replace(/_RPC_URL$/, '_RPC_FALLBACK_URL')
+  const envFallback = process.env[fallbackEnvKey]?.trim()
+  const list = [env, envFallback, cfg.defaultRpc, ...(cfg.rpcFallbacks ?? [])].filter(
     (u): u is string => typeof u === 'string' && u.length > 0
   )
   return [...new Set(list)]
