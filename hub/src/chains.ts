@@ -33,8 +33,8 @@ export const CHAINS: Record<SupportedChain, ChainConfig> = {
     },
     explorerTx: (hash) => `https://etherscan.io/tx/${hash}`,
     rpcEnv: 'ETH_RPC_URL',
-    defaultRpc: 'https://eth.llamarpc.com',
-    rpcFallbacks: ['https://eth.drpc.org', 'https://rpc.flashbots.net', 'https://ethereum-rpc.publicnode.com']
+    defaultRpc: 'https://eth.drpc.org',
+    rpcFallbacks: ['https://rpc.flashbots.net', 'https://ethereum-rpc.publicnode.com']
   },
   bsc: {
     id: 'bsc',
@@ -59,8 +59,8 @@ export const CHAINS: Record<SupportedChain, ChainConfig> = {
     },
     explorerTx: (hash) => `https://polygonscan.com/tx/${hash}`,
     rpcEnv: 'POLYGON_RPC_URL',
-    defaultRpc: 'https://polygon.llamarpc.com',
-    rpcFallbacks: ['https://polygon.drpc.org', 'https://polygon-bor-rpc.publicnode.com']
+    defaultRpc: 'https://polygon.drpc.org',
+    rpcFallbacks: ['https://polygon-bor-rpc.publicnode.com']
   },
   arbitrum: {
     id: 'arbitrum',
