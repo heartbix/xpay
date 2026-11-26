@@ -34,7 +34,7 @@ export const CHAINS: Record<SupportedChain, ChainConfig> = {
     explorerTx: (hash) => `https://etherscan.io/tx/${hash}`,
     rpcEnv: 'ETH_RPC_URL',
     defaultRpc: 'https://eth.llamarpc.com',
-    rpcFallbacks: ['https://eth.drpc.org', 'https://ethereum.publicrpc.com', 'https://rpc.flashbots.net']
+    rpcFallbacks: ['https://eth.drpc.org', 'https://rpc.flashbots.net', 'https://ethereum-rpc.publicnode.com']
   },
   bsc: {
     id: 'bsc',
@@ -47,7 +47,7 @@ export const CHAINS: Record<SupportedChain, ChainConfig> = {
     explorerTx: (hash) => `https://bscscan.com/tx/${hash}`,
     rpcEnv: 'BSC_RPC_URL',
     defaultRpc: 'https://bsc-dataseed.binance.org',
-    rpcFallbacks: ['https://bsc-dataseed1.binance.org', 'https://bsc.drpc.org']
+    rpcFallbacks: ['https://bsc-dataseed1.binance.org', 'https://bsc.publicnode.com']
   },
   polygon: {
     id: 'polygon',
@@ -73,7 +73,7 @@ export const CHAINS: Record<SupportedChain, ChainConfig> = {
     explorerTx: (hash) => `https://arbiscan.io/tx/${hash}`,
     rpcEnv: 'ARB_RPC_URL',
     defaultRpc: 'https://arb1.arbitrum.io/rpc',
-    rpcFallbacks: ['https://arbitrum.llamarpc.com', 'https://arbitrum.drpc.org']
+    rpcFallbacks: ['https://arbitrum.drpc.org', 'https://arbitrum-one.publicnode.com']
   },
   base: {
     id: 'base',
@@ -86,7 +86,7 @@ export const CHAINS: Record<SupportedChain, ChainConfig> = {
     explorerTx: (hash) => `https://basescan.org/tx/${hash}`,
     rpcEnv: 'BASE_RPC_URL',
     defaultRpc: 'https://mainnet.base.org',
-    rpcFallbacks: ['https://base.llamarpc.com', 'https://base.drpc.org']
+    rpcFallbacks: ['https://base.drpc.org', 'https://base.publicnode.com']
   }
 }
 

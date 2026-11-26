@@ -6,7 +6,7 @@ import { isBelowMinDeposit } from './fees'
 import { attachFeeQuote } from './ledger'
 import { pushOpsEvent } from './ops-events'
 import { findAddress, findDepositByTx, listAddresses, saveDeposit } from './store'
-import { providerFor } from './rpc'
+import { withProvider } from './rpc'
 import { retryUnsweptDeposits, sweepDepositToTreasury } from './sweep'
 
 const ERC20_IFACE = new Interface([
@@ -31,23 +31,26 @@ async function scanToken(chain: SupportedChain, token: TokenConfig, lookbackBloc
     .map((a) => a.address)
   if (watched.length === 0) return
 
-  const provider = providerFor(chain)
-  const latest = await provider.getBlockNumber()
-  const toBlock = Math.max(0, latest - 12)
-  const fromBlock = Math.max(0, toBlock - lookbackBlocks)
-  if (fromBlock > toBlock) return
+  // withProvider walks the fallback list, so a rate-limited primary RPC
+  // (Ankr quota, 429, timeout) does not stop deposit detection.
+  await withProvider(chain, async (provider) => {
+    const latest = await provider.getBlockNumber()
+    const toBlock = Math.max(0, latest - 12)
+    const fromBlock = Math.max(0, toBlock - lookbackBlocks)
+    if (fromBlock > toBlock) return
 
-  const topics = [TRANSFER_TOPIC, null, toTopics(watched)]
-  const chunk = LOG_CHUNK[chain]
-  for (let start = fromBlock; start <= toBlock; start += chunk) {
-    const end = Math.min(toBlock, start + chunk - 1)
-    const logs = await getLogsChunk(provider, token.address, start, end, topics)
-    for (const log of logs) {
-      const parsed = ERC20_IFACE.parseLog({ topics: log.topics as string[], data: log.data })
-      if (!parsed) continue
-      await recordTransfer(chain, token, log.transactionHash, String(parsed.args.to), parsed.args.value as bigint)
+    const topics = [TRANSFER_TOPIC, null, toTopics(watched)]
+    const chunk = LOG_CHUNK[chain]
+    for (let start = fromBlock; start <= toBlock; start += chunk) {
+      const end = Math.min(toBlock, start + chunk - 1)
+      const logs = await getLogsChunk(provider, token.address, start, end, topics)
+      for (const log of logs) {
+        const parsed = ERC20_IFACE.parseLog({ topics: log.topics as string[], data: log.data })
+        if (!parsed) continue
+        await recordTransfer(chain, token, log.transactionHash, String(parsed.args.to), parsed.args.value as bigint)
+      }
     }
-  }
+  })
 }
 
 async function getLogsChunk(
@@ -133,17 +136,18 @@ async function recordTransfer(
 }
 
 export async function ingestTx(chain: SupportedChain, txHash: string) {
-  const provider = providerFor(chain)
-  const receipt = await provider.getTransactionReceipt(txHash)
-  if (!receipt) throw new Error('tx_not_found')
-  for (const token of Object.values(CHAINS[chain].tokens)) {
-    for (const log of receipt.logs) {
-      if (log.address.toLowerCase() !== token.address.toLowerCase()) continue
-      const parsed = ERC20_IFACE.parseLog({ topics: log.topics as string[], data: log.data })
-      if (!parsed || parsed.name !== 'Transfer') continue
-      await recordTransfer(chain, token, txHash, String(parsed.args.to), parsed.args.value as bigint)
+  await withProvider(chain, async (provider) => {
+    const receipt = await provider.getTransactionReceipt(txHash)
+    if (!receipt) throw new Error('tx_not_found')
+    for (const token of Object.values(CHAINS[chain].tokens)) {
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== token.address.toLowerCase()) continue
+        const parsed = ERC20_IFACE.parseLog({ topics: log.topics as string[], data: log.data })
+        if (!parsed || parsed.name !== 'Transfer') continue
+        await recordTransfer(chain, token, txHash, String(parsed.args.to), parsed.args.value as bigint)
+      }
     }
-  }
+  })
 }
 
 /** Catch-up window. Keep modest so public RPCs do not 403 archive. */
